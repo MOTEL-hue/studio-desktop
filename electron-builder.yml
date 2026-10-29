@@ -1,0 +1,26 @@
+appId: il.motel.studio
+productName: Studio
+artifactName: StudioSetup.${ext}
+directories:
+  output: dist
+  buildResources: buildResources
+files:
+  - main.js
+  - preload.js
+  - setup.html
+  - package.json
+win:
+  target: nsis
+  icon: buildResources/icon.ico
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: אולפן שידור
+  runAfterFinish: true
+publish:
+  - provider: github
+    owner: MOTEL-hue
+    repo: studio-desktop
+    releaseType: release

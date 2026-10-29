@@ -1,0 +1,24 @@
+{
+  "name": "studio-desktop",
+  "productName": "Studio",
+  "version": "1.0.0",
+  "description": "אולפן שידור - תוכנה למחשב (Windows)",
+  "author": "MOTEL-hue",
+  "license": "MIT",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MOTEL-hue/studio-desktop.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --config electron-builder.yml --win"
+  },
+  "dependencies": {
+    "electron-updater": "6.3.0"
+  },
+  "devDependencies": {
+    "electron": "^39.8.10",
+    "electron-builder": "24.13.3"
+  }
+}

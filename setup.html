@@ -1,0 +1,13 @@
+<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>אולפן שידור</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;background:#0e1117;color:#e8ecf3;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+.box{max-width:520px;padding:28px;background:#171c26;border:1px solid #2d3748;border-radius:14px}
+h1{margin:0 0 8px;font-size:22px}p{color:#9aa4b5;line-height:1.6}input{width:100%;padding:10px;border-radius:8px;border:1px solid #2d3748;background:#0e1117;color:#fff;font-size:15px;direction:ltr;box-sizing:border-box}
+button{margin-top:14px;padding:10px 18px;border:0;border-radius:8px;background:#22a45d;color:#fff;font-size:15px;cursor:pointer}.err{color:#ff8a8a}</style></head>
+<body><div class="box"><h1>🎬 אולפן שידור</h1>
+<p id="msg">כתבו את כתובת האתר שלכם. התוכנה תפתח את האולפן משם, תתעדכן לבד עם האתר, ותעבוד גם בלי אינטרנט אחרי הפעם הראשונה.</p>
+<input id="u" placeholder="https://..." value="https://voice-chat-suite-rir5.onrender.com"><button id="go">המשך</button><p class="err" id="e"></p></div>
+<script>
+(async()=>{const u=document.getElementById('u');const cur=await window.studioDesktop.getUrl();if(cur)u.value=cur;
+document.getElementById('go').onclick=async()=>{const r=await window.studioDesktop.saveUrl(u.value.trim());if(r&&r.error)document.getElementById('e').textContent=r.error;};
+u.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('go').click();});})();
+</script></body></html>
