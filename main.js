@@ -5,6 +5,9 @@ const { app, BrowserWindow, Menu, dialog, desktopCapturer, globalShortcut, ipcMa
 const path = require("path");
 const fs = require("fs");
 
+/* גוגל חוסמת כניסה מתוך חלון של תוכנה ("Electron" בזיהוי), לכן מציגים את אותו זיהוי כמו של Chrome רגיל */
+const CHROME_UA = app.userAgentFallback.replace(/\s*Electron\/\S+/i, "").replace(/\s*Studio\/\S+/i, "").replace(/\s*studio-desktop\/\S+/i, "");
+app.userAgentFallback = CHROME_UA;
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
@@ -40,6 +43,7 @@ function createWindow() {
 function load() { if (!win) return; if (!cfg.siteUrl) win.loadFile(path.join(__dirname, "setup.html")); else win.loadURL(studioUrl()); }
 
 function setupSession() {
+  session.defaultSession.setUserAgent(CHROME_UA);
   const ses = session.defaultSession, ok = new Set(["media", "midi", "midiSysex", "display-capture", "fullscreen", "window-management", "clipboard-sanitized-write", "notifications", "audioCapture", "videoCapture"]);
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(ok.has(perm)));
   ses.setPermissionCheckHandler((wc, perm) => ok.has(perm));
