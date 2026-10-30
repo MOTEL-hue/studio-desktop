@@ -74,6 +74,25 @@ function registerKeys() {
   }
 }
 
+/* עדכון התוכנה מבפנים: בודקת בכל הפעלה, מורידה ברקע, ושואלת אם להפעיל מחדש ולהתקין */
+let updater = null;
+function initUpdater() {
+  if (!app.isPackaged) return;
+  try {
+    updater = require("electron-updater").autoUpdater; updater.autoDownload = true;
+    updater.on("update-downloaded", () => dialog.showMessageBox(win, { type: "info", buttons: ["הפעלה מחדש והתקנה", "אחר כך"], defaultId: 0, cancelId: 1, title: "עדכון", message: "גרסה חדשה של התוכנה מוכנה", detail: "התוכנה תיסגר ותיפתח מחדש עם הגרסה החדשה." }).then(r => { if (r.response === 0) updater.quitAndInstall(); }));
+    updater.on("error", () => {}); updater.checkForUpdates().catch(() => {});
+  } catch (e) { /* בלי עדכון */ }
+}
+function manualCheck() {
+  if (!updater) { dialog.showMessageBox(win, { type: "info", message: "בדיקת עדכון זמינה רק בתוכנה המותקנת" }); return; }
+  updater.checkForUpdates().then(r => {
+    const v = r && r.updateInfo && r.updateInfo.version;
+    if (!v || v === app.getVersion()) dialog.showMessageBox(win, { type: "info", message: "התוכנה מעודכנת", detail: "גרסה " + app.getVersion() });
+    else dialog.showMessageBox(win, { type: "info", message: "נמצאה גרסה " + v, detail: "היא מורדת עכשיו, ותוצע התקנה בסיומה." });
+  }).catch(() => dialog.showMessageBox(win, { type: "warning", message: "לא הצלחנו לבדוק עדכון", detail: "בדקו שיש חיבור לאינטרנט." }));
+}
+
 function buildMenu() {
   const t = [
     { label: "אולפן", submenu: [
@@ -87,7 +106,7 @@ function buildMenu() {
       { label: "מקשי Ctrl+Alt (חץ ימינה/שמאלה = הבאה/קודמת, 1-9 = סצנות)", type: "checkbox", checked: cfg.globalKeys, click: m => { cfg.globalKeys = m.checked; saveCfg(); registerKeys(); } },
       { label: "מקשי מספרים כלליים (נאמפד שולט גם מחוץ לאולפן)", type: "checkbox", checked: cfg.numpad, click: m => { cfg.numpad = m.checked; saveCfg(); registerKeys(); } } ] },
     { label: "תצוגה", submenu: [{ role: "zoomIn" }, { role: "zoomOut" }, { role: "resetZoom" }, { type: "separator" }, { role: "toggleDevTools", label: "כלי פיתוח" }] },
-    { label: "עזרה", submenu: [{ label: "מדריך למתחילים", click: () => run(`window.Studio&&Studio.ui.showTab("help")`) }, { label: `גרסה ${app.getVersion()}`, enabled: false }] },
+    { label: "עזרה", submenu: [{ label: "מדריך למתחילים", click: () => run(`window.Studio&&Studio.ui.showTab("help")`) }, { label: "בדיקת עדכון עכשיו", click: () => manualCheck() }, { label: `גרסה ${app.getVersion()}`, enabled: false }] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(t));
 }
@@ -106,7 +125,7 @@ else {
   app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(() => {
     loadCfg(); setupSession(); buildMenu(); createWindow(); registerKeys();
-    if (app.isPackaged) { try { require("electron-updater").autoUpdater.checkForUpdatesAndNotify(); } catch (e) { /* בלי עדכון */ } }
+    initUpdater();
     app.on("activate", () => { if (!win) createWindow(); });
   });
   app.on("will-quit", () => globalShortcut.unregisterAll());
