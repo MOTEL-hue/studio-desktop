@@ -92,8 +92,11 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(t));
 }
 
-ipcMain.handle("get-url", () => cfg.siteUrl);
-ipcMain.handle("save-url", (_e, raw) => {
+// הגשר מיועד רק לדף ההגדרה המקומי, לא לאתר
+const local = e => !!e.senderFrame && e.senderFrame.url.startsWith("file:");
+ipcMain.handle("get-url", e => (local(e) ? cfg.siteUrl : ""));
+ipcMain.handle("save-url", (e, raw) => {
+  if (!local(e)) return { error: "לא מורשה" };
   let u; try { u = new URL(/^https?:\/\//.test(raw) ? raw : "https://" + raw); } catch (e) { return { error: "הכתובת לא תקינה" }; }
   cfg.siteUrl = u.origin; saveCfg(); load(); return { ok: true };
 });
