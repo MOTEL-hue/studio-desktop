@@ -1,0 +1,18 @@
+<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>עדכון התוכנה</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;background:#0e1117;color:#e8ecf3;margin:0;padding:22px;box-sizing:border-box}h1{margin:0 0 6px;font-size:20px}p{color:#9aa4b5;margin:4px 0 14px;line-height:1.5}
+.bar{height:16px;background:#1f2633;border-radius:8px;overflow:hidden;border:1px solid #2d3748}.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#22a45d,#5ee19a);transition:width .3s}
+.pct{font-size:34px;font-weight:800;margin:12px 0 2px;direction:ltr;text-align:center}.sub{text-align:center;color:#9aa4b5;font-size:13px;direction:rtl;min-height:1.4em}
+.row{display:flex;gap:10px;margin-top:16px;justify-content:center}button{padding:10px 18px;border:0;border-radius:8px;font-size:15px;cursor:pointer;color:#fff;background:#2d3748}button.go{background:#22a45d}</style></head>
+<body><h1 id="t">מוריד עדכון...</h1><p id="d">אפשר להמשיך לעבוד. ההתקנה תתבצע כשתבחרו.</p>
+<div class="bar"><i id="b"></i></div><div class="pct" id="pct">0%</div><div class="sub" id="sub"></div>
+<div class="row"><button class="go" id="inst" style="display:none">הפעלה מחדש והתקנה</button><button id="lat">הסתר</button></div>
+<script>
+const $=id=>document.getElementById(id),mb=n=>(n/1e6).toFixed(1),A=window.studioDesktop;
+A.onUpdate(s=>{
+  const pc=Math.max(0,Math.min(100,s.percent||0));$('b').style.width=pc+'%';$('pct').textContent=Math.round(pc)+'%';
+  if(s.phase==='ready'){$('t').textContent='העדכון מוכן'+(s.version?' (גרסה '+s.version+')':'');$('d').textContent='התוכנה תיסגר ותיפתח מחדש. ההגדרות והסצנות נשמרות.';$('inst').style.display='';$('lat').textContent='אחר כך';$('sub').textContent='';}
+  else if(s.phase==='error'){$('t').textContent='ההורדה נכשלה';$('d').textContent='נסו שוב בהפעלה הבאה, או בדקו חיבור לאינטרנט.';}
+  else{$('t').textContent='מוריד עדכון'+(s.version?' (גרסה '+s.version+')':'')+'...';$('sub').textContent=s.total?mb(s.done||0)+' מתוך '+mb(s.total)+' מ"ב'+(s.speed?' · '+mb(s.speed)+' מ"ב לשנייה':''):'';}
+});
+$('inst').onclick=()=>A.updateAction('install');$('lat').onclick=()=>A.updateAction('later');
+</script></body></html>

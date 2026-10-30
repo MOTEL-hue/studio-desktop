@@ -102,23 +102,43 @@ function passWindow() {
   w.loadFile(path.join(__dirname, "setpass.html"), { query: { has: cfg.pass ? "1" : "" } });
 }
 
-/* עדכון התוכנה מבפנים: בודקת בכל הפעלה, מורידה ברקע, ושואלת אם להפעיל מחדש ולהתקין */
-let updater = null;
+/* עדכון התוכנה מבפנים: בודקת בכל הפעלה, מורידה ברקע עם חלון התקדמות (אחוזים, מהירות וגודל), ושואלת אם להפעיל מחדש ולהתקין */
+let updater = null, updWin = null, updState = null, manual = false;
+const upd = state => {
+  updState = Object.assign({}, updState || {}, state);
+  if (!updWin || updWin.isDestroyed()) {
+    updWin = new BrowserWindow({ width: 460, height: 310, parent: win || undefined, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true, title: "עדכון התוכנה", backgroundColor: "#0e1117",
+      webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
+    updWin.on("closed", () => { updWin = null; });
+    updWin.loadFile(path.join(__dirname, "update.html")).then(() => updWin && updWin.webContents.send("upd", updState));
+  } else updWin.webContents.send("upd", updState);
+};
 function initUpdater() {
-  if (!app.isPackaged) return;
+  if (!app.isPackaged && !process.env.STUDIO_FAKE_UPDATE) return;
+  if (process.env.STUDIO_FAKE_UPDATE) { simulate(); return; }
   try {
     updater = require("electron-updater").autoUpdater; updater.autoDownload = true;
-    updater.on("update-downloaded", () => dialog.showMessageBox(win, { type: "info", buttons: ["הפעלה מחדש והתקנה", "אחר כך"], defaultId: 0, cancelId: 1, title: "עדכון", message: "גרסה חדשה של התוכנה מוכנה", detail: "התוכנה תיסגר ותיפתח מחדש עם הגרסה החדשה. כל ההגדרות והסצנות נשמרות." }).then(r => { if (r.response === 0) updater.quitAndInstall(); }));
-    updater.on("error", () => {}); updater.checkForUpdates().catch(() => {});
+    updater.on("update-available", info => upd({ phase: "download", version: info.version, percent: 0 }));
+    updater.on("download-progress", p => upd({ phase: "download", percent: p.percent, speed: p.bytesPerSecond, done: p.transferred, total: p.total }));
+    updater.on("update-downloaded", info => upd({ phase: "ready", version: info.version, percent: 100 }));
+    updater.on("update-not-available", () => { if (manual) { manual = false; dialog.showMessageBox(win, { type: "info", message: "התוכנה מעודכנת", detail: "גרסה " + app.getVersion() }); } });
+    updater.on("error", () => { if (manual) { manual = false; dialog.showMessageBox(win, { type: "warning", message: "לא הצלחנו לבדוק עדכון", detail: "בדקו שיש חיבור לאינטרנט." }); } else if (updState && updState.phase === "download") upd({ phase: "error" }); });
+    updater.checkForUpdates().catch(() => {});
   } catch (e) { /* בלי עדכון */ }
 }
 function manualCheck() {
   if (!updater) { dialog.showMessageBox(win, { type: "info", message: "בדיקת עדכון זמינה רק בתוכנה המותקנת" }); return; }
-  updater.checkForUpdates().then(r => {
-    const v = r && r.updateInfo && r.updateInfo.version;
-    if (!v || v === app.getVersion()) dialog.showMessageBox(win, { type: "info", message: "התוכנה מעודכנת", detail: "גרסה " + app.getVersion() });
-    else dialog.showMessageBox(win, { type: "info", message: "נמצאה גרסה " + v, detail: "היא מורדת עכשיו, ותוצע התקנה בסיומה." });
-  }).catch(() => dialog.showMessageBox(win, { type: "warning", message: "לא הצלחנו לבדוק עדכון", detail: "בדקו שיש חיבור לאינטרנט." }));
+  if (updState && (updState.phase === "download" || updState.phase === "ready")) { upd({}); return; }
+  manual = true; updater.checkForUpdates().catch(() => {});
+}
+ipcMain.on("upd-action", (e, a) => {
+  if (!e.senderFrame || !e.senderFrame.url.startsWith("file:")) return;
+  if (a === "install" && updater) updater.quitAndInstall(true, true);
+  else if (a === "later" && updWin) updWin.close();
+});
+function simulate() { // בדיקה בלבד: מדמה הורדה (STUDIO_FAKE_UPDATE=1)
+  let p = 0; upd({ phase: "download", version: "9.9.9", percent: 0, total: 96e6 });
+  const t = setInterval(() => { p += 7; if (p >= 100) { clearInterval(t); upd({ phase: "ready", percent: 100 }); } else upd({ phase: "download", percent: p, done: p * 0.96e6, total: 96e6, speed: 5.2e6 }); }, 400);
 }
 
 function buildMenu() {
