@@ -3,6 +3,7 @@
 html[data-theme=light]{--bg:#eef1f6;--p1:#ffffff;--p2:#f2f5fa;--ln:#cfd7e3;--tx:#1b2433;--tx2:#334155;--dim:#5b6779;--ac:#c58f00;--acx:#fff;--inp:#ffffff;--shade:#0002;--toast:#fff;--lay:#9fb0cb;color-scheme:light}
 html[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;background:var(--bg);color:var(--tx);font-family:"Heebo",Arial,sans-serif;font-size:14px}
 body#studio{min-height:100vh}
 button,select,input,textarea{font:inherit;color:inherit}
