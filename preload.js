@@ -1,6 +1,7 @@
-// גשר קטן לדף ההגדרה הראשונית בלבד. האולפן עצמו (האתר) לא מקבל גישה למחשב.
+// גשר קטן לדפי הנעילה והסיסמה המקומיים בלבד. הוא גם מסמן לאולפן שהוא רץ בתוכנה (בלי כפתור התקנה).
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("studioDesktop", {
-  saveUrl: url => ipcRenderer.invoke("save-url", url),
-  getUrl: () => ipcRenderer.invoke("get-url"),
+  isDesktop: true,
+  unlock: p => ipcRenderer.invoke("unlock", p),
+  setPass: (old, next) => ipcRenderer.invoke("set-pass", { old, next }),
 });

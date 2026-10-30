@@ -7,7 +7,9 @@ directories:
 files:
   - main.js
   - preload.js
-  - setup.html
+  - lock.html
+  - setpass.html
+  - app/**/*
   - package.json
 win:
   target: nsis

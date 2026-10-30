@@ -1,0 +1,13 @@
+<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>סיסמה לתוכנה</title><style>body{font-family:Segoe UI,Arial,sans-serif;background:#0e1117;color:#e8ecf3;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}.box{width:min(380px,90vw);padding:26px;background:#171c26;border:1px solid #2d3748;border-radius:14px}h1{margin:0 0 8px;font-size:21px}p,small{color:#9aa4b5;line-height:1.6}input{width:100%;padding:10px;border-radius:8px;border:1px solid #2d3748;background:#0e1117;color:#fff;font-size:15px;box-sizing:border-box;margin:6px 0}button{margin-top:10px;padding:10px 18px;border:0;border-radius:8px;background:#22a45d;color:#fff;font-size:15px;cursor:pointer}button.g{background:#2d3748}.err{color:#ff8a8a;min-height:1.2em}</style></head>
+<body><div class="box"><h1>🔑 סיסמה לתוכנה</h1><p>הסיסמה לא חובה. אם תגדירו, התוכנה תבקש אותה בכל פתיחה.</p>
+<input id="old" type="password" placeholder="הסיסמה הנוכחית"><input id="n1" type="password" placeholder="סיסמה חדשה (ריק = בלי סיסמה)"><input id="n2" type="password" placeholder="סיסמה חדשה שוב">
+<button id="ok">שמירה</button> <button class="g" id="cl">סגירה</button><p class="err" id="e"></p></div>
+<script>
+const has=new URLSearchParams(location.search).get('has')==='1';if(!has)document.getElementById('old').style.display='none';
+document.getElementById('cl').onclick=()=>window.close();
+document.getElementById('ok').onclick=async()=>{const n1=document.getElementById('n1').value,n2=document.getElementById('n2').value;
+if(n1!==n2){document.getElementById('e').textContent='הסיסמאות לא זהות';return;}
+const r=await window.studioDesktop.setPass(document.getElementById('old').value,n1);
+if(r.error){document.getElementById('e').textContent=r.error;return;}
+document.getElementById('e').style.color='#7be0a0';document.getElementById('e').textContent=n1?'הסיסמה נשמרה':'הסיסמה הוסרה';setTimeout(()=>window.close(),900);};
+</script></body></html>

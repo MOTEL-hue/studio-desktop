@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>אולפן שידור</title>
+<meta name="theme-color" content="#0e1117">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="studio/studio.css">
+<script>/* מצב יום / לילה לפי הבחירה באתר, ואם אין - לפי המכשיר */
+(function(){var t;try{t=localStorage.getItem("vc-theme")}catch(e){}if(t!=="light"&&t!=="dark")t=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.setAttribute("data-theme",t)})();
+</script>
+</head>
+<body id="studio" data-output="output.html">
+<noscript>האולפן צריך דפדפן עם JavaScript פעיל.</noscript>
+<div id="app"></div>
+<dialog id="dlg"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="studio/engine.js"></script>
+<script src="studio/fx.js"></script>
+<script src="studio/guide_content.js"></script>
+<script src="studio/ui.js"></script>
+<script src="studio/edit.js"></script>
+<script src="studio/crop.js"></script>
+<script src="studio/extras.js"></script>
+<script src="studio/show.js"></script>
+<script src="studio/ui2.js"></script>
+</body></html>
