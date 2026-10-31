@@ -12,7 +12,9 @@ A.onUpdate(s=>{
   const pc=Math.max(0,Math.min(100,s.percent||0));$('b').style.width=pc+'%';$('pct').textContent=Math.round(pc)+'%';
   if(s.phase==='ready'){$('t').textContent='העדכון מוכן'+(s.version?' (גרסה '+s.version+')':'');$('d').textContent='התוכנה תיסגר ותיפתח מחדש. ההגדרות והסצנות נשמרות.';$('inst').style.display='';$('lat').textContent='אחר כך';$('sub').textContent='';}
   else if(s.phase==='error'){$('t').textContent='ההורדה נכשלה';$('d').textContent='נסו שוב בהפעלה הבאה, או בדקו חיבור לאינטרנט.';}
-  else{$('t').textContent='מוריד עדכון'+(s.version?' (גרסה '+s.version+')':'')+'...';$('sub').textContent=s.total?mb(s.done||0)+' מתוך '+mb(s.total)+' מ"ב'+(s.speed?' · '+mb(s.speed)+' מ"ב לשנייה':''):'';}
+  else{const sp=s.speed?' · '+mb(s.speed)+' מ"ב לשנייה':'',known=s.total&&(s.done||0)<=s.total*1.02;
+    $('t').textContent=(pc>=100?'מסיים את ההורדה':'מוריד עדכון'+(s.version?' (גרסה '+s.version+')':''))+'...';
+    $('sub').textContent=pc>=100?'מכין את ההתקנה...':known?mb(s.done||0)+' מתוך '+mb(s.total)+' מ"ב'+sp:(s.done?'הורדו '+mb(s.done)+' מ"ב'+sp:'');}
 });
 $('inst').onclick=()=>A.updateAction('install');$('lat').onclick=()=>A.updateAction('later');
 </script></body></html>
