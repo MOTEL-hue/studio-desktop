@@ -125,7 +125,10 @@ U.renderRec = function () {
   const disk = !!window.showSaveFilePicker;
   body.append(h("p", { class: "hint", text: "ההקלטה מתבצעת מאותו מסך שמשודר, בלי עצירה כשמחליפים סצנה או מצלמה. " + (disk ? "הדפדפן יבקש לבחור קובץ בהתחלה, והקלטה נכתבת ישר אליו תוך כדי, כך שגם אם הדפדפן ייסגר הקובץ ישאר." : "בדפדפן הזה ההקלטה נשמרת בזיכרון עד העצירה (מומלץ Chrome או Edge לשמירה ישירה לקובץ). הקלטות ארוכות מאוד צורכות זיכרון.") }),
     h("div", { class: "row" }, h("button", { class: "btn rec", text: S.rec ? "⏹ עצירה" : "⏺ התחלת הקלטה", onclick: U.toggleRec }), S.rec ? h("button", { class: "btn", text: S.rec.state === "pause" ? "▶ המשך" : "⏸ השהיה", onclick: () => S.recPause() }) : null),
-    U.field("איכות", U.sel([[4, "רגילה (4 מגה-ביט)"], [8, "גבוהה (8)"], [12, "גבוהה מאוד (12)"], [20, "מקסימלית (20)"]], st.bitrate, v => { st.bitrate = +v; S.save(); }), "איכות גבוהה יותר = קובץ גדול יותר."),
+    U.check("הקלטה באיכות גבוהה (קידוד בכרטיס המסך)", st.hqRec, v => { st.hqRec = v; S.save(); U.renderRec(); }, "מקודד את ההקלטה ב-H.264 בכרטיס המסך, עם שליטה בקצב ובתמונות מפתח, לקובץ MP4. איכות טובה יותר ופחות עומס על המעבד. אם המחשב לא תומך, ההקלטה הרגילה ממשיכה לעבוד."),
+    st.hqRec ? h("p", { class: "livestat " + (S.hqInfo ? "ok" : "bad"), id: "hqInfo", text: !S.hqInfo ? (S.hqProbed ? "לא נתמך במחשב או בדפדפן הזה. ההקלטה הרגילה תשמש במקום." : "בודק תמיכה...") : (S.hqInfo.video.hw ? "✅ נמצא קידוד בכרטיס המסך" : "⚠️ לא נמצא קידוד בכרטיס המסך, הקידוד יהיה במעבד. במחשב חלש זה עלול לדלג על תמונות. אם בהקלטה יש קפיצות, השתמשו בהקלטה הרגילה או הורידו רזולוציה.") + (S.hqInfo.audio ? " · שמע " + S.hqInfo.audio.kind.toUpperCase() : " · בלי שמע (לא נתמך כאן)") }) : null,
+    st.hqRec ? U.field("סוג קצב", U.sel([["variable", "משתנה (מומלץ: איכות קבועה, קובץ קטן יותר)"], ["constant", "קבוע (לעריכה ולשידור)"]], st.hqMode || "variable", v => { st.hqMode = v; S.save(); }), "קצב משתנה נותן יותר נתונים לרגעים מורכבים. קצב קבוע צפוי יותר.") : null,
+    U.field("איכות", U.sel([[4, "רגילה (4 מגה-ביט)"], [8, "גבוהה (8)"], [12, "גבוהה מאוד (12)"], [20, "מקסימלית (20)"], [35, "מקצועית (35, קבצים גדולים)"], [60, "אולפן (60, קבצים גדולים מאוד)"]], st.bitrate, v => { st.bitrate = +v; S.save(); }), "איכות גבוהה יותר = קובץ גדול יותר."),
     U.field("סוג קובץ", U.sel([["auto", "אוטומטי (MP4 אם אפשר)"], ["mp4", "MP4 - מתאים לכל מכשיר"], ["webm", "WebM"]], st.container, v => { st.container = v; S.save(); }), "שינוי חל על ההקלטה הבאה."),
     U.check("הקלטה נפרדת לכל מקור (ISO)", st.iso, v => { st.iso = v; S.save(); }, "מקליט גם כל מצלמה, מסך ומיקרופון בנפרד, בקובץ משלו, כדי לערוך אחר כך. דורש Chrome או Edge, ובוחרים תיקייה אחת בתחילת ההקלטה."),
     h("h3", { text: "הפעלה חוזרת" }), h("p", { class: "hint", text: "מחזיק ברקע את הרגעים האחרונים של השידור. בלחיצה אחת (מקש Y) מופיעה סצנה שמשמיעה אותם שוב, אפשר בהילוך איטי." }),
@@ -135,13 +138,14 @@ U.renderRec = function () {
     h("div", { class: "row" }, h("button", { class: "btn go", text: "⏪ הפעלה חוזרת עכשיו", onclick: () => U.act("replay") })),
     h("h3", { text: "הקלטות" }), h("div", { id: "recList" }));
   U.renderRecList();
+  if (st.hqRec && !S.hqInfo) S.hqProbe().then(() => { if (U.tab === "rec") U.renderRec(); });
 };
 U.renderRecList = function () {
   const box = $("#recList"); if (!box) return; box.innerHTML = "";
   if (!S.recordings.length) box.append(h("p", { class: "empty", text: "עוד לא הוקלט כלום בשיחה הזו." }));
   S.recordings.forEach(r => {
     const prog = h("small", { class: "pr" });
-    box.append(h("div", { class: "rc" }, h("div", { class: "meta" }, h("b", { text: r.name }), h("small", { text: (r.state === "done" ? "הסתיימה" : r.state === "pause" ? "מושהית" : "מקליטה") + " · " + U.fmtT(S.recElapsed(r)) + " · " + U.mb(r.bytes) + (r.handle ? " · נשמר בקובץ" : "") })),
+    box.append(h("div", { class: "rc" }, h("div", { class: "meta" }, h("b", { text: r.name }), h("small", { text: (r.state === "done" ? "הסתיימה" : r.state === "pause" ? "מושהית" : "מקליטה") + " · " + U.fmtT(S.recElapsed(r)) + " · " + U.mb(r.bytes) + (r.handle ? " · נשמר בקובץ" : "") + (r.hq ? " · איכות גבוהה" + (r.hq.drop ? " · דילוגים: " + r.hq.drop : "") : "") + (r.err ? " · שגיאה: " + r.err : "") })),
       r.state === "done" ? h("div", { class: "acts" },
         r.handle ? null : h("button", { class: "btn", text: "💾 שמירה", onclick: () => S.recDownload(r) }),
         !S.urls.driveStart ? null : h("button", { class: "btn", text: "☁ העלאה לדרייב", onclick: async e => { const b = e.currentTarget; b.disabled = true; try { const j = await S.uploadDrive(r, p => (prog.textContent = Math.round(p * 100) + "%")); prog.textContent = "הועלה ✓"; U.toast("הועלה לדרייב: " + (j.name || r.name)); } catch (er) { b.disabled = false; prog.textContent = ""; U.toast(er.message, true); } } }), prog,
@@ -168,6 +172,7 @@ U.renderSettings = function () {
       h("button", { class: "btn", text: "🎞️ מצב איכות (1080p, 30 תמונות)", onclick: () => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); return; } S.setSize(1920, 1080); S.setFps(30); S.save(); U.renderSettings(); U.toast("מצב איכות הופעל"); } })),
     U.check("קווי עזר בתצוגה המקדימה", st.guides, v => { st.guides = v; S.save(); if (U.applyGuides) U.applyGuides(); }, "מציג קווי שלישים וגבול בטוח (5%) מעל התצוגה המקדימה בלבד, כדי ליישר כתוביות ואנשים. הקווים לא נכנסים לשידור."),
     U.check("מצב אולפן (תצוגה מקדימה לפני שידור)", st.studio, v => { st.studio = v; if (!v) S.pvw = S.pgm; S.emit("scenes"); S.save(); }, "מדליקים: בוחרים סצנה, רואים אותה בצד, ולוחצים \"שידור\". מכבים: לחיצה על סצנה משדרת אותה מיד."),
+    h("h3", { text: "ביצועים" }), h("p", { class: "livestat", id: "perfBox" }),
     h("h3", { text: "מערכי סצנות שמורים" }), h("p", { class: "hint", text: "שומרים את כל הסצנות, השכבות והתוכנית בשם (למשל \"שיעור\" או \"אירוע\"), וטוענים אחר כך בלחיצה. המקורות (מצלמות וקבצים) לא נשמרים בתוכם." }), h("div", { id: "profBox" }),
     h("h3", { text: "גיבוי ההגדרות" }), h("p", { class: "hint", text: "שומרים את הסצנות, השכבות וההגדרות לקובץ, ואפשר לטעון אותו במחשב אחר. המקורות (מצלמות וקבצים) יש לחבר מחדש." }),
     h("div", { class: "row" }, h("button", { class: "btn", text: "⬇ שמירה לקובץ", onclick: () => { const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(S.snapshot(true))], { type: "application/json" })), download: "studio-settings.json" }); document.body.append(a); a.click(); a.remove(); } }),

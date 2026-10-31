@@ -483,7 +483,7 @@ function compose(ctx, W, H) {
 /* ---------- לולאת ציור ---------- */
 S.pgmCanvas = document.createElement("canvas"); S.pvwCanvas = document.createElement("canvas"); S.pvwCanvas.width = 640; S.pvwCanvas.height = 360;
 S.fps = 0; let frames = 0, last = performance.now(), tmr;
-S.setSize = function (w, h) { S.settings.w = w; S.settings.h = h; S.pgmCanvas.width = w; S.pgmCanvas.height = h; sA = null; S.restartStream(); };
+S.setSize = function (w, h) { S.hqInfo = null; S.hqProbed = false; S.settings.w = w; S.settings.h = h; S.pgmCanvas.width = w; S.pgmCanvas.height = h; sA = null; S.restartStream(); };
 S.restartStream = function () {
   /* captureStream(0) + requestFrame: כל תמונה נשלחת מיד אחרי שצוירה, בלי המתנה למחזור הבא */
   S.outStream = S.pgmCanvas.captureStream(0); S.vt = S.outStream.getVideoTracks()[0];
@@ -506,8 +506,11 @@ function audioTick(dt) {
     else s.nodes.gate.gain.setTargetAtTime(1, t, .05);
   });
 }
+S.perf = { ms: 0, late: 0, frames: 0, hqDrop: 0 };
 function tick() {
-  const now = performance.now(); if (now - (S._drawn || 0) < 700 / S.settings.fps) return; S._drawn = now;
+  const now = performance.now(); if (now - (S._drawn || 0) < 700 / S.settings.fps) return;
+  if (S._drawn && now - S._drawn > 1600 / S.settings.fps) S.perf.late++;  // פריים שאיחר: המחשב לא עמד בקצב
+  S._drawn = now; S.perf.frames++;
   const W = S.pgmCanvas.width, H = S.pgmCanvas.height, ctx = S.pgmCanvas.getContext("2d");
   S.overlays.forEach(o => { const tgt = o.on ? 1 : 0; o._a += Math.sign(tgt - o._a) * Math.min(Math.abs(tgt - o._a), (now - (S._lt || now)) / 300); });
   const dt = now - (S._lt || now); S._lt = now;
@@ -516,6 +519,8 @@ function tick() {
   S.drawOverlays(ctx, W, H, now);
   const pc = S.pvwCanvas.getContext("2d"), pv = S.scene(S.pvw); if (pv) S.renderScene(pc, pv, 640, 360); else { pc.fillStyle = "#000"; pc.fillRect(0, 0, 640, 360); }
   S.drawOverlays(pc, 640, 360, now);
+  S.perf.ms = S.perf.ms * .9 + (performance.now() - now) * .1;
+  if (S.rec && S.rec.hq) S.hqFrame();
   if (S.vt && S.vt.requestFrame) S.vt.requestFrame();
   audioTick(dt); frames++;
   if (now - last >= 1000) { S.fps = Math.round(frames * 1000 / (now - last)); frames = 0; last = now; S.emit("stats"); }
@@ -528,7 +533,7 @@ S.start = function () {
     wk.onmessage = tick; wk.postMessage(S.settings.fps);
   } catch (e) { tmr = setInterval(tick, 1000 / S.settings.fps); }
 };
-S.setFps = function (f) { S.settings.fps = f; S.start(); };
+S.setFps = function (f) { S.hqInfo = null; S.hqProbed = false; S.settings.fps = f; S.start(); };
 
 /* ---------- הקלטה ---------- */
 S.MIMES = [["mp4", 'video/mp4;codecs=avc1,mp4a.40.2'], ["mp4", "video/mp4"], ["webm", "video/webm;codecs=vp9,opus"], ["webm", "video/webm;codecs=vp8,opus"], ["webm", "video/webm"]];
@@ -573,7 +578,10 @@ S.recStart = async function () {
       item.writer = await item.handle.createWritable(); item.name = item.handle.name; }
     catch (e) { if (e.name === "AbortError") throw new Error("בוטל"); item.handle = null; }
   }
-  wire(item, S.outStream, S.settings.bitrate * 1e6); S.rec = item; S.recAll = [item]; S.recordings.unshift(item);
+  if (S.settings.hqRec && !S.hqInfo) await S.hqProbe();
+  if (S.settings.hqRec && S.hqInfo && window.Mp4Muxer) { item.ext = "mp4"; item.mime = "video/mp4"; if (!item.handle) item.name = item.name.replace(/\.\w+$/, ".mp4"); await S.hqStart(item); }
+  else wire(item, S.outStream, S.settings.bitrate * 1e6);
+  S.rec = item; S.recAll = [item]; S.recordings.unshift(item);
   if (S.settings.iso) for (const s of S.sources) {  // הקלטה נפרדת לכל מקור עם תמונה או שמע
     const st = S.isoStream(s); if (!st) continue; const nm = (s.name || "מקור").replace(/[\\/:*?"<>|]/g, "_") + "_" + stamp + "." + pm[0], it = newItem(nm, pm, { iso: true });
     try { if (dir) { it.handle = await dir.getFileHandle(nm, { create: true }); it.writer = await it.handle.createWritable(); } wire(it, st, 6e6); S.recAll.push(it); S.recordings.unshift(it); } catch (e) { /* מקור שאי אפשר להקליט */ }
@@ -585,6 +593,64 @@ S.recPause = function () {
   (S.recAll || [r]).forEach(i => { if (i.mr.state === "inactive") return; if (pausing) { i.dur += Date.now() - i.t0; i.mr.pause(); i.state = "pause"; } else { i.t0 = Date.now(); i.mr.resume(); i.state = "rec"; } }); S.emit("rec");
 };
 S.recStop = function () { (S.recAll || (S.rec ? [S.rec] : [])).forEach(i => { if (i.mr.state !== "inactive") i.mr.stop(); }); };
+/* הקלטה באיכות גבוהה: קידוד H.264 בכרטיס המסך (WebCodecs) עם שליטה בקצב ובתמונות מפתח, ואריזה ל-MP4 */
+S.hqInfo = null;
+S.hqProbe = async function () {
+  S.hqProbed = true;
+  if (!window.VideoEncoder || !window.Mp4Muxer) return (S.hqInfo = null);
+  const w = S.settings.w, h = S.settings.h, fps = S.settings.fps; let v = null, a = null;
+  for (const codec of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.42e033"]) {
+    for (const hw of ["prefer-hardware", "no-preference"]) {
+      try { const r = await VideoEncoder.isConfigSupported({ codec, width: w, height: h, bitrate: 8e6, framerate: fps, hardwareAcceleration: hw }); if (r.supported) { v = { codec, hw: hw === "prefer-hardware" }; break; } } catch (e) { /* לא נתמך */ }
+    }
+    if (v) break;
+  }
+  if (!v) return (S.hqInfo = null);
+  if (window.AudioEncoder && window.MediaStreamTrackProcessor) for (const [kind, codec] of [["aac", "mp4a.40.2"], ["opus", "opus"]]) {
+    try { const r = await AudioEncoder.isConfigSupported({ codec, sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 }); if (r.supported) { a = { kind, codec }; break; } } catch (e) { /* לא נתמך */ }
+  }
+  return (S.hqInfo = { video: v, audio: a });
+};
+S.hqStart = async function (item) {
+  const info = S.hqInfo, W = S.settings.w, H = S.settings.h, fps = S.settings.fps, ac = ensureAudio(), sr = ac.sampleRate;
+  const target = item.writer ? new Mp4Muxer.FileSystemWritableFileStreamTarget(item.writer) : new Mp4Muxer.ArrayBufferTarget();
+  const muxer = new Mp4Muxer.Muxer({ target, video: { codec: "avc", width: W, height: H, frameRate: fps }, audio: info.audio ? { codec: info.audio.kind, numberOfChannels: 2, sampleRate: sr } : undefined,
+    fastStart: item.writer ? "fragmented" : "in-memory", firstTimestampBehavior: "offset" });
+  const hq = item.hq = { muxer, target, n: 0, gop: fps * 2, active: 0, last: performance.now(), samples: 0, sr, drop: 0 };
+  hq.ve = new VideoEncoder({ output: (c, m) => { muxer.addVideoChunk(c, m); item.bytes += c.byteLength; }, error: e => { item.err = e.message; } });
+  hq.ve.configure({ codec: info.video.codec, width: W, height: H, bitrate: S.settings.bitrate * 1e6, framerate: fps, hardwareAcceleration: info.video.hw ? "prefer-hardware" : "no-preference",
+    bitrateMode: S.settings.hqMode === "constant" ? "constant" : "variable", latencyMode: "quality", avc: { format: "avc" } });
+  if (info.audio && S.dest.stream.getAudioTracks()[0]) {
+    hq.ae = new AudioEncoder({ output: (c, m) => { muxer.addAudioChunk(c, m); item.bytes += c.byteLength; }, error: e => { item.err = e.message; } });
+    hq.ae.configure({ codec: info.audio.codec, sampleRate: sr, numberOfChannels: 2, bitrate: 192000 });
+    hq.reader = new MediaStreamTrackProcessor({ track: S.dest.stream.getAudioTracks()[0].clone() }).readable.getReader();
+    (async () => {
+      for (;;) {
+        const { value, done } = await hq.reader.read(); if (done || !value) break;
+        if (item.state === "rec" && hq.ae.state === "configured") {
+          const n = value.numberOfFrames, ch = value.numberOfChannels, buf = new Float32Array(n * 2);
+          for (let c = 0; c < 2; c++) value.copyTo(buf.subarray(c * n, (c + 1) * n), { planeIndex: Math.min(c, ch - 1), format: "f32-planar" });
+          const ad = new AudioData({ format: "f32-planar", sampleRate: value.sampleRate, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(hq.samples / value.sampleRate * 1e6), data: buf });
+          hq.samples += n; hq.ae.encode(ad); ad.close();
+        }
+        value.close();
+      }
+    })().catch(() => {});
+  }
+  const finish = async () => {
+    try { if (hq.reader) hq.reader.cancel().catch(() => {}); await hq.ve.flush(); if (hq.ae) await hq.ae.flush(); muxer.finalize(); } catch (e) { item.err = e.message; }
+    if (item.writer) { try { await item.writer.close(); } catch (e) { /* נסגר */ } } else item.blob = new Blob([target.buffer], { type: "video/mp4" });
+    item.dur += item.state === "rec" ? Date.now() - item.t0 : 0; item.state = "done"; S.rec = null; S.emit("rec"); S.emit("recs");
+  };
+  item.mr = { state: "recording", pause() { this.state = "paused"; }, resume() { this.state = "recording"; hq.last = performance.now(); }, stop() { if (this.state === "inactive") return; this.state = "inactive"; finish(); } };
+};
+S.hqFrame = function () {
+  const item = S.rec, hq = item.hq, now = performance.now(); if (item.mr.state !== "recording" || hq.ve.state !== "configured") { hq.last = now; return; }
+  hq.active += now - hq.last; hq.last = now;
+  if (hq.ve.encodeQueueSize > 4) { hq.drop++; S.perf.hqDrop++; return; }  // המקודד מאחר: מדלגים על פריים ולא תוקעים את השידור
+  const vf = new VideoFrame(S.pgmCanvas, { timestamp: Math.round(hq.active * 1000) });
+  hq.ve.encode(vf, { keyFrame: hq.n % hq.gop === 0 }); vf.close(); hq.n++;
+};
 S.recElapsed = r => r.dur + (r.state === "rec" ? Date.now() - r.t0 : 0);
 S.recFile = async function (r) { return r.handle ? r.handle.getFile() : r.blob; };
 S.recDownload = async function (r) {

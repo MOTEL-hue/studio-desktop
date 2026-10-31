@@ -50,7 +50,7 @@ function build() {
   app.append(
     h("header", { class: "top" },
       B.home ? h("a", { class: "back", href: B.home, text: "→ לאתר" }) : null, h("h1", { text: "🎬 אולפן שידור" }),
-      h("span", { id: "chipRec", class: "chip", hidden: true }), h("span", { id: "chipShow", class: "chip dim", hidden: true }), h("span", { id: "chipLive", class: "chip red", hidden: true }), h("span", { id: "chipFps", class: "chip dim" }),
+      h("span", { id: "chipRec", class: "chip", hidden: true }), h("span", { id: "chipShow", class: "chip dim", hidden: true }), h("span", { id: "chipLive", class: "chip red", hidden: true }), h("span", { id: "chipFps", class: "chip dim" }), h("span", { id: "chipPerf", class: "chip dim", title: "כמה זמן לוקח לצייר כל תמונה. ירוק = יש מספיק זמן, צהוב = קרוב לגבול, אדום = המחשב לא עומד בקצב (הורידו רזולוציה או אפקטים)" }),
       h("span", { class: "grow" }),
       h("button", { class: "btn", id: "btnOut", text: "🖥️ חלון הצגה (מסך שני)", title: "פותח חלון נפרד שמציג את השידור במסך המלא, למשל במקרן או במסך השני", onclick: U.openOutput }),
       h("button", { class: "btn rec", id: "btnRec", text: "⏺ הקלטה", onclick: U.toggleRec }),
@@ -342,7 +342,11 @@ document.addEventListener("keydown", e => {
 U.init = async function (ready) {
   build(); renderTrans();
   U.themeBtn(); U.monBtn();
-  S.on("stats", () => { $("#chipFps").textContent = S.settings.w + "x" + S.settings.h + " · " + S.fps + " תמונות/שנ'"; });
+  S.on("stats", () => {
+    $("#chipFps").textContent = S.settings.w + "x" + S.settings.h + " · " + S.fps + " תמונות/שנ'";
+    const budget = 1000 / S.settings.fps, ms = S.perf.ms, c = $("#chipPerf"); if (c) { c.textContent = "⚡ " + ms.toFixed(1) + " מ\"ש"; c.style.color = ms < budget * .5 ? "#3fbf74" : ms < budget * .9 ? "#e6b84a" : "#ff6b6b"; }
+    const pb = $("#perfBox"); if (pb) pb.textContent = "זמן ציור לתמונה: " + ms.toFixed(1) + " מ\"ש מתוך " + budget.toFixed(1) + " שיש לכל תמונה · תמונות שאיחרו מאז ההפעלה: " + S.perf.late + (S.perf.hqDrop ? " · תמונות שהמקודד דילג עליהן: " + S.perf.hqDrop : "") + ". אם יש הרבה איחורים: הורידו רזולוציה, קצב תמונות או אפקטים מונפשים.";
+  });
   if (ready) ready();
 };
 U.renderTrans = renderTrans;
