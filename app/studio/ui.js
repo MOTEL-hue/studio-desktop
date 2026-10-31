@@ -50,7 +50,7 @@ function build() {
   app.append(
     h("header", { class: "top" },
       B.home ? h("a", { class: "back", href: B.home, text: "→ לאתר" }) : null, h("h1", { text: "🎬 אולפן שידור" }),
-      h("span", { id: "chipRec", class: "chip", hidden: true }), h("span", { id: "chipShow", class: "chip dim", hidden: true }), h("span", { id: "chipFps", class: "chip dim" }),
+      h("span", { id: "chipRec", class: "chip", hidden: true }), h("span", { id: "chipShow", class: "chip dim", hidden: true }), h("span", { id: "chipLive", class: "chip red", hidden: true }), h("span", { id: "chipFps", class: "chip dim" }),
       h("span", { class: "grow" }),
       h("button", { class: "btn", id: "btnOut", text: "🖥️ חלון הצגה (מסך שני)", title: "פותח חלון נפרד שמציג את השידור במסך המלא, למשל במקרן או במסך השני", onclick: U.openOutput }),
       h("button", { class: "btn rec", id: "btnRec", text: "⏺ הקלטה", onclick: U.toggleRec }),
@@ -240,6 +240,21 @@ U.delScene = function () {
 };
 
 /* ---------- עורך הסצנה ---------- */
+/* צבע ואפקטים לכל חלון: תיקון צבע ומסך ירוק */
+function effectsPanel(sl, ch) {
+  const cc = sl.cc = sl.cc || Object.assign({}, S.CC_DEFAULT), cr = sl.chroma = sl.chroma || { on: false, color: "#00ff00", sim: .12, smooth: .08, spill: .5 };
+  const rng = (label, k, min, max, step, unit) => U.field(label, U.range(min, max, step, cc[k], v => { cc[k] = v; ch(); }, v => v + (unit || "")));
+  const eye = window.EyeDropper ? h("button", { class: "btn", text: "🎯 בחירת צבע מהמסך", title: "לוחצים על הרקע הירוק בתמונה", onclick: async () => { try { const r = await new window.EyeDropper().open(); cr.color = r.sRGBHex; cr.on = true; ch(); U.renderEditor(); } catch (e) { /* בוטל */ } } }) : null;
+  return h("details", { class: "slot" }, h("summary", { text: "צבע ואפקטים (מסך ירוק, תיקון צבע)" }),
+    U.check("מסך ירוק: הסרת הרקע", cr.on, v => { cr.on = v; ch(); }, "מסיר צבע אחד מהתמונה (בדרך כלל ירוק או כחול) כדי שהאדם יופיע על הרקע של הסצנה."),
+    h("div", { class: "row" }, U.color(cr.color, v => { cr.color = v; ch(); }), eye),
+    U.field("עוצמת ההסרה", U.range(.02, .6, .01, cr.sim, v => { cr.sim = v; ch(); }), "כמה גוונים קרובים לצבע ייעלמו. מעלים אם נשאר ירוק, מורידים אם האדם מתחיל להיעלם."),
+    U.field("רכות הקצוות", U.range(0, .3, .01, cr.smooth, v => { cr.smooth = v; ch(); })),
+    U.field("ניקוי שיירי צבע בקצוות", U.range(0, 1, .05, cr.spill, v => { cr.spill = v; ch(); })),
+    h("hr"), rng("בהירות", "b", 20, 220, 1, "%"), rng("ניגודיות", "c", 20, 220, 1, "%"), rng("רוויית צבע", "s", 0, 300, 1, "%"), rng("גוון", "h", -180, 180, 1, "°"),
+    rng("טשטוש", "bl", 0, 20, .5, " פיקסלים"), rng("שחור-לבן", "g", 0, 100, 1, "%"), rng("ספיה (צבע ישן)", "sep", 0, 100, 1, "%"),
+    h("button", { class: "btn", text: "↺ איפוס צבע ואפקטים", onclick: () => { sl.cc = null; sl.chroma = null; ch(); U.renderEditor(); } }));
+}
 function miniLayout(key) {
   const sc = S.newScene("", key), cells = S.cellsOf(sc), ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 64 36"); svg.setAttribute("class", "mini-lay");
@@ -270,7 +285,8 @@ U.renderEditor = function () {
         sl.crop ? h("button", { class: "btn", text: "↺ ביטול חיתוך", onclick: () => { sl.crop = null; ch(); U.renderEditor(); } }) : null),
       U.field("הגדלה", U.range(1, 4, .05, sl.zoom, v => { sl.zoom = v; ch(); }, v => v.toFixed(2) + "x")),
       U.field("הזזה אופקית", U.range(-1, 1, .02, sl.px, v => { sl.px = v; ch(); })), U.field("הזזה אנכית", U.range(-1, 1, .02, sl.py, v => { sl.py = v; ch(); })),
-      U.check("היפוך (כמו מראה)", sl.mirror, v => { sl.mirror = v; ch(); }), U.field("כיתוב על החלון", U.text(sl.label, v => { sl.label = v; ch(); }, "למשל: שם האורח"))));
+      U.check("היפוך (כמו מראה)", sl.mirror, v => { sl.mirror = v; ch(); }), U.field("כיתוב על החלון", U.text(sl.label, v => { sl.label = v; ch(); }, "למשל: שם האורח")),
+      effectsPanel(sl, ch)));
   }
   const addBtn = n < S.MAXSLOTS ? h("button", { class: "btn", text: "➕ חלון נוסף", title: "עוד חלון חופשי שאפשר למקם בעכבר", onclick: () => { sc.extra = (sc.extra || 0) + 1; ch(); U.renderEditor(); U.selectWindow(S.slotCount(sc) - 1); } }) : null;
   const style = h("details", { class: "slot" }, h("summary", { text: "עיצוב: רווחים, פינות, צבעים, מסגרת" }),

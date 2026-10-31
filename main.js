@@ -5,6 +5,7 @@ const { app, BrowserWindow, Menu, dialog, desktopCapturer, globalShortcut, ipcMa
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { spawn, execFile } = require("child_process");
 
 /* זיהוי כמו Chrome רגיל (בלי המילה Electron) */
 const CHROME_UA = app.userAgentFallback.replace(/\s*Electron\/\S+/i, "").replace(/\s*Studio\/\S+/i, "").replace(/\s*studio-desktop\/\S+/i, "");
@@ -24,6 +25,48 @@ const CFG_FILE = () => path.join(app.getPath("userData"), "config.json");
 let cfg = { globalKeys: true, numpad: false, pass: null };
 function loadCfg() { try { cfg = Object.assign(cfg, JSON.parse(fs.readFileSync(CFG_FILE(), "utf8"))); } catch (e) { /* פעם ראשונה */ } }
 function saveCfg() { try { fs.mkdirSync(path.dirname(CFG_FILE()), { recursive: true }); fs.writeFileSync(CFG_FILE(), JSON.stringify(cfg, null, 2)); } catch (e) { /* בלי שמירה */ } }
+
+/* שידור חי לאינטרנט (RTMP): האולפן שולח את התמונה והשמע ל-ffmpeg שבתוך התוכנה, והוא מקודד ומשדר ליוטיוב, פייסבוק וכו' */
+const ffPath = () => { let p = require("ffmpeg-static"); if (app.isPackaged) p = p.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`); return p; };
+const studioFrame = e => !!e.senderFrame && e.senderFrame.url.startsWith("app://studio/");
+let probed = null, ff = null, ffStopping = false;
+async function probeEncoders() {
+  if (probed) return probed; const found = ["x264"];
+  for (const [key, enc] of [["nvenc", "h264_nvenc"], ["qsv", "h264_qsv"], ["amf", "h264_amf"]]) {
+    const ok = await new Promise(res => execFile(ffPath(), ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:s=256x144:d=0.2", "-frames:v", "1", "-c:v", enc, "-f", "null", "-"], { timeout: 8000, windowsHide: true }, err => res(!err)));
+    if (ok) found.push(key);
+  }
+  return (probed = found);
+}
+const ENC = { x264: ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency"], nvenc: ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll", "-rc", "cbr"],
+  qsv: ["-c:v", "h264_qsv", "-preset", "veryfast"], amf: ["-c:v", "h264_amf", "-usage", "lowlatency", "-rc", "cbr"] };
+function ffArgs(o, target) {
+  const fps = Math.max(10, Math.min(60, +o.fps || 30)), v = Math.max(300, Math.min(20000, +o.vbit || 2500)), gop = fps * 2;
+  return ["-hide_banner", "-loglevel", "info", "-fflags", "+nobuffer+genpts", "-flags", "low_delay", "-probesize", "32768", "-analyzeduration", "0", "-i", "pipe:0",
+    "-vf", (o.height ? `scale=-2:${Math.round(o.height)},` : "") + "format=yuv420p", "-r", String(fps), ...ENC[o.encoder] || ENC.x264,
+    "-b:v", v + "k", "-maxrate", v + "k", "-bufsize", v * 2 + "k", "-g", String(gop), "-keyint_min", String(gop),
+    "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-f", "flv", target];
+}
+ipcMain.handle("stream-encoders", async e => (studioFrame(e) ? probeEncoders() : []));
+ipcMain.handle("stream-start", async (e, o) => {
+  if (!studioFrame(e)) return { error: "לא מורשה" };
+  if (ff) return { error: "כבר משדרים" };
+  if (!/^rtmps?:\/\//i.test(o.url || "")) return { error: "כתובת השרת צריכה להתחיל ב-rtmp:// או rtmps://" };
+  const key = String(o.key || ""), target = o.url.replace(/\/+$/, "") + (key ? "/" + key : ""), send = s => { try { e.sender.send("stream-status", s); } catch (er) { /* נסגר */ } };
+  let enc = o.encoder; if (!enc || enc === "auto") { const f = await probeEncoders(); enc = f.includes("nvenc") ? "nvenc" : f.includes("qsv") ? "qsv" : f.includes("amf") ? "amf" : "x264"; }
+  const mask = t => (key ? t.split(key).join("***") : t); ffStopping = false; let live = false, tail = "";
+  try { ff = spawn(ffPath(), ffArgs(Object.assign({}, o, { encoder: enc }), target), { stdio: ["pipe", "ignore", "pipe"], windowsHide: true }); } catch (er) { ff = null; return { error: "לא הצלחנו להפעיל את המקודד" }; }
+  const me = ff; me.stdin.on("error", () => {});
+  me.stderr.on("data", d => {
+    const t = d.toString(); tail = (tail + t).slice(-1500); const m = /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?time=(\S+)\s+bitrate=\s*([\d.]+)kbits\/s.*?speed=\s*([\d.]+)x/.exec(t);
+    if (m) { live = true; send({ state: "live", fps: +m[2], time: m[3], bitrate: +m[4], speed: +m[5], encoder: enc }); }
+  });
+  me.on("close", code => { if (ff === me) ff = null; if (ffStopping) send({ state: "stopped" }); else send({ state: "error", message: mask(tail).split(/\r?\n/).filter(Boolean).slice(-3).join(" | ").slice(0, 300) || "החיבור נותק", live }); });
+  send({ state: "starting", encoder: enc }); return { ok: true, encoder: enc };
+});
+ipcMain.on("stream-chunk", (e, buf) => { if (studioFrame(e) && ff && ff.stdin.writable && ff.stdin.writableLength < 24e6) ff.stdin.write(Buffer.from(buf)); });
+ipcMain.handle("stream-stop", e => { if (!studioFrame(e) || !ff) return true; ffStopping = true; const me = ff; try { me.stdin.end(); } catch (er) { /* סגור */ } setTimeout(() => { try { me.kill(); } catch (er) { /* סגור */ } }, 2500); return true; });
+app.on("before-quit", () => { try { if (ff) ff.kill(); } catch (e) { /* סגור */ } });
 
 /* סיסמה (לא חובה): נשמרת מוצפנת בקובץ ההגדרות */
 const hash = (p, salt) => crypto.scryptSync(String(p), salt, 32).toString("hex");

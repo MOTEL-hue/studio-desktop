@@ -1,7 +1,7 @@
 {
   "name": "studio-desktop",
   "productName": "Studio",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "אולפן שידור - תוכנה למחשב (Windows)",
   "author": "MOTEL-hue",
   "license": "MIT",
@@ -15,7 +15,8 @@
     "dist": "electron-builder --config electron-builder.yml --win"
   },
   "dependencies": {
-    "electron-updater": "6.3.0"
+    "electron-updater": "6.3.0",
+    "ffmpeg-static": "^5.3.0"
   },
   "devDependencies": {
     "electron": "^39.8.10",

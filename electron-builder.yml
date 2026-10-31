@@ -4,6 +4,8 @@ artifactName: StudioSetup.${ext}
 directories:
   output: dist
   buildResources: buildResources
+asarUnpack:
+  - node_modules/ffmpeg-static/**
 files:
   - main.js
   - preload.js

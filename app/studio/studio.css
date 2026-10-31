@@ -104,3 +104,4 @@ body.remote{padding:12px;max-width:640px;margin:0 auto;-webkit-tap-highlight-col
 .prog{font-weight:700;margin:6px 0}.bar{height:8px;background:var(--shade);border-radius:4px;overflow:hidden;margin:6px 0 10px}.bar i{display:block;height:100%;width:0;background:var(--ac);transition:width .25s linear}
 .qr{background:#fff;padding:8px;border-radius:8px;display:inline-block;margin:6px 0}
 .nextbtn{background:var(--go);border-color:var(--go);color:#fff;font-weight:800;padding:12px 8px}
+.livestat{margin:10px 0;padding:10px 12px;border-radius:8px;background:var(--p2);border:1px solid var(--ln);line-height:1.5}.livestat.ok{border-color:var(--go)}.livestat.bad{border-color:var(--red)}

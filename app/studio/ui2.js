@@ -2,14 +2,14 @@
 (function () {
 "use strict";
 const S = window.Studio, U = S.ui, h = U.h, $ = U.$;
-const TABS = [["audio", "🎚️ שמע"], ["overlays", "🏷️ שכבות"], ["show", "📋 תוכנית"], ["remote", "🎮 שלט"], ["rec", "⏺ הקלטה"], ["settings", "⚙️ הגדרות"], ["help", "❓ עזרה"]];
+const TABS = [["audio", "🎚️ שמע"], ...(window.studioDesktop && window.studioDesktop.hasStream ? [["live", "📡 שידור חי"]] : []), ["overlays", "🏷️ שכבות"], ["show", "📋 תוכנית"], ["remote", "🎮 שלט"], ["rec", "⏺ הקלטה"], ["settings", "⚙️ הגדרות"], ["help", "❓ עזרה"]];
 U.tab = "audio";
 
 U.renderTabs = function () {
   const nav = $("#tabs"); nav.innerHTML = "";
   TABS.forEach(([id, l]) => nav.append(h("button", { class: "tab" + (U.tab === id ? " on" : ""), text: l, onclick: () => { U.tab = id; U.renderTabs(); } })));
   const body = $("#tabBody"); body.innerHTML = "";
-  ({ audio: U.renderMixer, overlays: U.renderOverlays, show: U.renderShow, remote: U.renderRemote, rec: U.renderRec, settings: U.renderSettings, help: U.renderHelp })[U.tab]();
+  ({ audio: U.renderMixer, overlays: U.renderOverlays, show: U.renderShow, remote: U.renderRemote, live: U.renderLive, rec: U.renderRec, settings: U.renderSettings, help: U.renderHelp })[U.tab]();
 };
 
 /* ---------- מיקסר שמע ---------- */
@@ -147,7 +147,7 @@ U.renderSettings = function () {
       h("button", { class: "btn", text: "🎞️ מצב איכות (1080p, 30 תמונות)", onclick: () => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); return; } S.setSize(1920, 1080); S.setFps(30); S.save(); U.renderSettings(); U.toast("מצב איכות הופעל"); } })),
     U.check("מצב אולפן (תצוגה מקדימה לפני שידור)", st.studio, v => { st.studio = v; if (!v) S.pvw = S.pgm; S.emit("scenes"); S.save(); }, "מדליקים: בוחרים סצנה, רואים אותה בצד, ולוחצים \"שידור\". מכבים: לחיצה על סצנה משדרת אותה מיד."),
     h("h3", { text: "גיבוי ההגדרות" }), h("p", { class: "hint", text: "שומרים את הסצנות, השכבות וההגדרות לקובץ, ואפשר לטעון אותו במחשב אחר. המקורות (מצלמות וקבצים) יש לחבר מחדש." }),
-    h("div", { class: "row" }, h("button", { class: "btn", text: "⬇ שמירה לקובץ", onclick: () => { const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(S.snapshot())], { type: "application/json" })), download: "studio-settings.json" }); document.body.append(a); a.click(); a.remove(); } }),
+    h("div", { class: "row" }, h("button", { class: "btn", text: "⬇ שמירה לקובץ", onclick: () => { const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(S.snapshot(true))], { type: "application/json" })), download: "studio-settings.json" }); document.body.append(a); a.click(); a.remove(); } }),
       h("label", { class: "btn" }, "⬆ טעינה מקובץ", h("input", { type: "file", accept: ".json", hidden: true, onchange: e => { const f = e.target.files[0]; if (!f) return; f.text().then(async t => { try { const d = JSON.parse(t); await restoreAll(d); U.toast("ההגדרות נטענו"); } catch (er) { U.toast("הקובץ לא תקין", true); } }); } })),
       h("button", { class: "btn danger", text: "איפוס הכול", onclick: () => U.confirm("לאפס את כל הסצנות, השכבות וההגדרות?", async () => { localStorage.removeItem(S.KEY); location.reload(); }) })),
     h("h3", { text: "מקשי קיצור" }), h("table", { class: "keys" }, [["1-9", "בחירת סצנה"], ["רווח / Enter", "שידור התצוגה המקדימה"], ["C", "חיתוך מיידי"], ["Shift + 1-9", "הצגה או הסתרה של שכבה"], ["M", "השתקה / ביטול השתקה כללי"], ["לחיצה כפולה על סצנה", "שידור מיידי"], ["לחיצה כפולה בחלון ההצגה", "מסך מלא"]].map(([k, v]) => h("tr", {}, h("th", { text: k }), h("td", { text: v })))));

@@ -58,7 +58,8 @@ function dims(v) { return [v.videoWidth || v.naturalWidth || v.width, v.videoHei
 function drawSrc(ctx, src, x, y, w, h, slot, k) {
   ctx.save();
   if (src && src.kind === "color") { ctx.fillStyle = src.props.color || "#000"; ctx.fillRect(x, y, w, h); ctx.restore(); return; }
-  const v = visual(src);
+  let v = visual(src);
+  if (v && slot && slot.chroma && slot.chroma.on) v = S.chromaFrame(v, slot.chroma) || v;  // מסך ירוק
   if (!v) {
     ctx.fillStyle = "#111827"; ctx.fillRect(x, y, w, h);
     ctx.fillStyle = "#6b7280"; ctx.font = "600 " + 28 * k + "px " + FONT; ctx.textAlign = "center"; ctx.direction = "rtl";
@@ -66,7 +67,7 @@ function drawSrc(ctx, src, x, y, w, h, slot, k) {
     ctx.restore(); return;
   }
   const g = S.geom(slot, v, w, h), fit = slot ? slot.fit : "cover";
-  if (fit === "contain") { ctx.fillStyle = "#000"; ctx.fillRect(x, y, w, h); }
+  if (fit === "contain" && !(slot && slot.chroma && slot.chroma.on)) { ctx.fillStyle = "#000"; ctx.fillRect(x, y, w, h); }
   if (fit === "blur") {
     const t = tiny || (tiny = document.createElement("canvas")); t.width = 48; t.height = 27; const tc = t.getContext("2d");
     tc.drawImage(v, g.sx, g.sy, g.sw, g.sh, 0, 0, 48, 27);
@@ -74,10 +75,39 @@ function drawSrc(ctx, src, x, y, w, h, slot, k) {
     ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fillRect(x, y, w, h); ctx.restore();
   }
   if (slot && slot.mirror) { ctx.translate(x + w / 2, 0); ctx.scale(-1, 1); ctx.translate(-(x + w / 2), 0); }
+  const cf = slot && S.colorFilter(slot.cc); if (cf) ctx.filter = cf;  // תיקון צבע
   ctx.drawImage(v, g.sx, g.sy, g.sw, g.sh, x + g.dx, y + g.dy, g.dw, g.dh);
   ctx.restore();
 }
 let tiny;
+/* תיקון צבע לחלון: בהירות, ניגודיות, רוויה, גוון, טשטוש, שחור-לבן וספיה. null = בלי שינוי */
+S.CC_DEFAULT = { b: 100, c: 100, s: 100, h: 0, bl: 0, g: 0, sep: 0 };
+S.colorFilter = function (cc) {
+  if (!cc) return null; const d = S.CC_DEFAULT; if (Object.keys(d).every(k => (cc[k] == null ? d[k] : cc[k]) === d[k])) return null;
+  const v = k => (cc[k] == null ? d[k] : cc[k]);
+  return `brightness(${v("b")}%) contrast(${v("c")}%) saturate(${v("s")}%) hue-rotate(${v("h")}deg) blur(${v("bl")}px) grayscale(${v("g")}%) sepia(${v("sep")}%)`;
+};
+/* מסך ירוק (הסרת רקע בצבע): מחושב במעבד על עותק קטן (עד 960 פיקסלים לרוחב), כדי שיעבוד בכל מחשב. מחזיר קנבס עם שקיפות */
+let kc, kx;
+S.chromaFrame = function (v, p) {
+  const [w, h] = dims(v); if (!w || !h) return null;
+  const sc = Math.min(1, 960 / w), cw = Math.round(w * sc), ch = Math.round(h * sc);
+  if (!kc) { kc = document.createElement("canvas"); kx = kc.getContext("2d", { willReadFrequently: true }); }
+  if (kc.width !== cw || kc.height !== ch) { kc.width = cw; kc.height = ch; }
+  kx.drawImage(v, 0, 0, cw, ch);
+  const im = kx.getImageData(0, 0, cw, ch), d = im.data, hex = (p.color || "#00ff00").replace("#", "");
+  const kr = parseInt(hex.substr(0, 2), 16), kg = parseInt(hex.substr(2, 2), 16), kb = parseInt(hex.substr(4, 2), 16);
+  const kcb = -.169 * kr - .331 * kg + .5 * kb, kcr = .5 * kr - .419 * kg - .081 * kb;
+  const sim = (p.sim == null ? .12 : p.sim) * 128, sm = Math.max(.5, (p.smooth == null ? .08 : p.smooth) * 128), sp = p.spill == null ? .5 : p.spill;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const dc = -.169 * r - .331 * g + .5 * b - kcb, dr = .5 * r - .419 * g - .081 * b - kcr, dist = Math.sqrt(dc * dc + dr * dr);
+    let a = (dist - sim) / sm; a = a < 0 ? 0 : a > 1 ? 1 : a;
+    if (a < 1 && sp > 0 && a > 0) { const l = .3 * r + .59 * g + .11 * b, m = sp * (1 - a); d[i] = r + (l - r) * m; d[i + 1] = g + (l - g) * m; d[i + 2] = b + (l - b) * m; }
+    d[i + 3] = a * 255;
+  }
+  kx.putImageData(im, 0, 0); return kc;
+};
 /* החלק הנראה מהמקור (אחרי חיתוך) ואיפה ובאיזה גודל הוא מצויר בתוך החלון */
 S.geom = function (slot, v, w, h) {
   const [SW, SH] = dims(v), c = (slot && slot.crop) || [0, 0, 0, 0];
@@ -522,8 +552,8 @@ S.uploadDrive = async function (r, onProg) {
 
 /* ---------- שמירה וטעינה ---------- */
 S.KEY = "studio.v1";
-S.snapshot = function () {
-  return { v: 1, settings: S.settings, pgm: S.pgm, pvw: S.pvw,
+S.snapshot = function (forExport) {
+  return { v: 1, settings: forExport && S.settings.stream ? Object.assign({}, S.settings, { stream: Object.assign({}, S.settings.stream, { key: "" }) }) : S.settings, pgm: S.pgm, pvw: S.pvw,
     show: S.show, scenes: S.scenes, overlays: S.overlays.map(o => Object.assign({}, o, { _a: 0, on: false })),
     sources: S.sources.map(s => ({ id: s.id, def: s.persist ? s.def : { kind: s.kind, name: s.name, props: {} }, persist: s.persist, audio: s.audio || null })) };
 };
