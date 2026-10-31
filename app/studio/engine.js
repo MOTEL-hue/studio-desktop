@@ -48,6 +48,7 @@ function rr(ctx, x, y, w, h, r) {
 function visual(src) {
   if (!src || src.missing) return null;
   if (src.kind === "text") return src.canvas;
+  if (src.kind === "web") return src.canvas && src.canvas.width && src.got ? src.canvas : null;
   if (src.kind === "slides") return src.img && src.img.complete && src.img.naturalWidth ? src.img : null;
   if (src.kind === "image") return src.el && src.el.complete && src.el.naturalWidth ? src.el : null;
   if (src.el && src.el.tagName === "VIDEO") return src.el.readyState >= 2 && src.el.videoWidth ? src.el : null;
@@ -319,7 +320,7 @@ S.applyAudioSettings = function () {
   S.recDelay.delayTime.setTargetAtTime((st.recDelay || 0) / 1000, t, .03);
   if (S.ac.setSinkId && S._sink !== (st.monitorDev || "")) { S._sink = st.monitorDev || ""; S.ac.setSinkId(S._sink).catch(() => {}); }
 };
-S.newAudio = () => ({ vol: 1, mute: false, pan: 0, delay: 0, lowcut: false, gate: -70, mode: "always", trim: 0, lo: 0, mid: 0, hi: 0, comp: false });
+S.newAudio = () => ({ vol: 1, mute: false, pan: 0, delay: 0, lowcut: false, gate: -70, mode: "always", trim: 0, lo: 0, mid: 0, hi: 0, comp: false, duck: "", duckAmt: 30 });
 function buildStrip(src, node) {
   const ac = ensureAudio(), a = src.audio, n = src.nodes = {};
   n.trim = ac.createGain(); n.hp = ac.createBiquadFilter(); n.hp.type = "highpass";
@@ -357,6 +358,11 @@ S.addSource = async function (def, id) {
         if (v.requestVideoFrameCallback) { const kick = () => { if (S.sources.includes(src)) { tick(); v.requestVideoFrameCallback(kick); } }; v.requestVideoFrameCallback(kick); } }
       if (st.getAudioTracks().length) { src.hasAudio = true; src.audio = S.newAudio(); buildStrip(src, S.ac ? S.ac.createMediaStreamSource(st) : ensureAudio().createMediaStreamSource(st)); }
       st.getTracks().forEach(t => t.addEventListener("ended", () => { src.lost = true; S.emit("source", src); }));
+    } else if (k === "web") {
+      const D = window.studioDesktop; if (!D || !D.hasBrowserSource) throw new Error("מקור דף אינטרנט זמין רק בתוכנה למחשב");
+      Object.assign(p, { url: p.url || "https://", w: +p.w || 1280, h: +p.h || 720, fps: +p.fps || 15 }); src.def.props = p;
+      src.canvas = document.createElement("canvas"); src.canvas.width = p.w; src.canvas.height = p.h; src.got = false;
+      const r = await D.webStart({ id: src.id, url: p.url, w: p.w, h: p.h, fps: p.fps }); if (r && r.error) throw new Error(r.error);
     } else if (k === "screen") {
       src.persist = false;
       const st = src.stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 } }, audio: p.audio !== false });
@@ -393,7 +399,7 @@ S.startSlideTimer = function (src) {
 S.addMissing = function (def, id) { const src = { id, kind: def.kind, name: def.name, props: def.props || {}, def, missing: true, persist: true, hasAudio: false };
   S.sources.push(src); return src; };
 S.disposeSource = function (s) {
-  clearInterval(s._timer);
+  clearInterval(s._timer); if (s.kind === "web" && window.studioDesktop && studioDesktop.webStop) studioDesktop.webStop(s.id);
   if (s.stream) s.stream.getTracks().forEach(t => t.stop());
   if (s.el && s.el.pause) { s.el.pause(); s.el.remove(); }
   if (s.url) URL.revokeObjectURL(s.url); if (s.slides) s.slides.forEach(u => URL.revokeObjectURL(u));
@@ -407,14 +413,19 @@ S.removeSource = function (id) {
 };
 
 /* ---------- מעברים ותצוגה ---------- */
-S.TRANS = { cut: "חיתוך מיידי", fade: "מעבר הדרגתי", dip: "דרך שחור", slideR: "החלקה ימינה", slideL: "החלקה שמאלה", slideU: "החלקה למעלה", wipeR: "מגירה ימינה", wipeL: "מגירה שמאלה", zoom: "התקרבות", flip: "היפוך" };
+S.TRANS = { stinger: "סטינגר (סרטון מעבר)", cut: "חיתוך מיידי", fade: "מעבר הדרגתי", dip: "דרך שחור", slideR: "החלקה ימינה", slideL: "החלקה שמאלה", slideU: "החלקה למעלה", wipeR: "מגירה ימינה", wipeL: "מגירה שמאלה", zoom: "התקרבות", flip: "היפוך" };
 S.pgm = null; S.pvw = null; S.trans = null;
 S.scene = id => S.scenes.find(s => s.id === id) || null;
 S.take = function (type, ms) {
   const to = S.scene(S.pvw); if (!to || S.trans) return; const from = S.scene(S.pgm);
   type = type || S.settings.trans; ms = ms == null ? S.settings.transMs : ms;
   if (S.reduceMotion) { type = "cut"; ms = 0; }
-  if (!from || type === "cut" || ms <= 0) { S.pgm = to.id; if (S.settings.studio && from) S.pvw = from.id; } else S.trans = { from, to, type, ms, t0: performance.now() };
+  let stinger = null;
+  if (type === "stinger") {
+    const st = S.src(S.settings.stingerSrc);
+    if (st && st.el && st.el.play) { stinger = st; ms = st.el.duration > 0 && isFinite(st.el.duration) ? st.el.duration * 1000 : 1500; st.el.currentTime = 0; S.ensureAudio(); st.el.play().catch(() => {}); } else type = "fade";
+  }
+  if (!from || type === "cut" || ms <= 0) { S.pgm = to.id; if (S.settings.studio && from) S.pvw = from.id; } else S.trans = { from, to, type, ms, t0: performance.now(), stinger };
   S.emit("scenes");
 };
 S.goLive = function (id, type) { S.pvw = id; S.take(type); };
@@ -434,11 +445,12 @@ function compose(ctx, W, H) {
     case "wipeR": ctx.drawImage(sA, 0, 0); ctx.drawImage(sB, 0, 0, e * W, H, 0, 0, e * W, H); break;
     case "wipeL": ctx.drawImage(sA, 0, 0); ctx.drawImage(sB, (1 - e) * W, 0, e * W, H, (1 - e) * W, 0, e * W, H); break;
     case "zoom": ctx.drawImage(sA, 0, 0); ctx.globalAlpha = e; { const s = 1.4 - .4 * e; ctx.drawImage(sB, W * (1 - s) / 2, H * (1 - s) / 2, W * s, H * s); } break;
+    case "stinger": { ctx.drawImage(p < (S.settings.stingerCut == null ? .5 : S.settings.stingerCut) ? sA : sB, 0, 0); const sv = T.stinger && T.stinger.el; if (sv && sv.readyState >= 2) ctx.drawImage(sv, 0, 0, W, H); } break;
     case "flip": { const first = p < .5, s = Math.abs(Math.cos(p * Math.PI)); ctx.drawImage(first ? sA : sB, W * (1 - s) / 2, 0, W * s, H); } break;
     default: ctx.drawImage(sB, 0, 0);
   }
   ctx.restore();
-  if (p >= 1) { S.pgm = T.to.id; if (S.settings.studio) S.pvw = T.from.id; S.trans = null; S.emit("scenes"); }
+  if (p >= 1) { if (T.stinger && T.stinger.el) T.stinger.el.pause(); S.pgm = T.to.id; if (S.settings.studio) S.pvw = T.from.id; S.trans = null; S.emit("scenes"); }
 }
 
 /* ---------- לולאת ציור ---------- */
@@ -449,7 +461,7 @@ S.restartStream = function () {
   /* captureStream(0) + requestFrame: כל תמונה נשלחת מיד אחרי שצוירה, בלי המתנה למחזור הבא */
   S.outStream = S.pgmCanvas.captureStream(0); S.vt = S.outStream.getVideoTracks()[0];
   if (S.dest) S.dest.stream.getAudioTracks().forEach(t => S.outStream.addTrack(t));
-  S.emit("stream");
+  S.emit("stream"); if (S.replay && S.replay.on) S.replayEnable(true);
 };
 function visibleIds() {
   const ids = new Set(), add = sc => { if (sc) for (let i = 0, n = S.slotCount(sc); i < n; i++) if (sc.slots[i].src) ids.add(sc.slots[i].src); };
@@ -460,6 +472,7 @@ function audioTick(dt) {
   S.sources.forEach(s => {
     if (!s.nodes) return; const a = s.audio; let g = a.mute ? 0 : a.vol;
     if (a.mode === "follow" && !vis.has(s.id)) g = 0;
+    if (a.duck) { const tr = S.src(a.duck); if (tr && tr.nodes) { if (20 * Math.log10(rms(tr.nodes.an0, tr.nodes.buf)[0] + 1e-9) > -42) s._duckUntil = performance.now() + 450; if (performance.now() < (s._duckUntil || 0)) g *= (a.duckAmt == null ? 30 : a.duckAmt) / 100; } }
     s.nodes.fader.gain.setTargetAtTime(g, t, .04);
     if (a.gate > -70) { const db = 20 * Math.log10(rms(s.nodes.an0, s.nodes.buf)[0] + 1e-9);
       if (db > a.gate) s.nodes.gOpen = performance.now() + 350; s.nodes.gate.gain.setTargetAtTime(performance.now() < s.nodes.gOpen ? 1 : 0, t, .05); }
@@ -499,32 +512,52 @@ S.pickMime = function () {
   return null;
 };
 S.rec = null;
-S.recStart = async function () {
-  if (S.rec) return; ensureAudio();
-  const pm = S.pickMime(); if (!pm) throw new Error("הדפדפן לא תומך בהקלטה");
-  const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-"), name = "הקלטה_" + stamp + "." + pm[0];
-  const item = { id: S.uid(), name, ext: pm[0], mime: pm[1], chunks: [], bytes: 0, t0: Date.now(), dur: 0, handle: null, writer: null, chain: Promise.resolve(), state: "rec" };
-  if (window.showSaveFilePicker) {
-    try { item.handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "וידאו", accept: { [pm[0] === "mp4" ? "video/mp4" : "video/webm"]: ["." + pm[0]] } }] });
-      item.writer = await item.handle.createWritable(); item.name = item.handle.name; }
-    catch (e) { if (e.name === "AbortError") throw new Error("בוטל"); item.handle = null; }
-  }
-  const mr = item.mr = new MediaRecorder(S.outStream, { mimeType: pm[1], videoBitsPerSecond: S.settings.bitrate * 1e6, audioBitsPerSecond: 192000 });
+function newItem(name, pm, extra) { return Object.assign({ id: S.uid(), name, ext: pm[0], mime: pm[1], chunks: [], bytes: 0, t0: Date.now(), dur: 0, handle: null, writer: null, chain: Promise.resolve(), state: "rec" }, extra || {}); }
+function wire(item, stream, vbps) {
+  const mr = item.mr = new MediaRecorder(stream, { mimeType: item.mime, videoBitsPerSecond: vbps, audioBitsPerSecond: 192000 });
   mr.ondataavailable = ev => {
     if (!ev.data.size) return; item.bytes += ev.data.size;
     if (item.writer) item.chain = item.chain.then(() => item.writer.write(ev.data)).catch(() => { item.err = true; });
     else item.chunks.push(ev.data);
   };
   mr.onstop = async () => {
-    item.dur += Date.now() - item.t0; await item.chain;
-    if (item.writer) { try { await item.writer.close(); } catch (e) { /* נסגר */ } }
-    else item.blob = new Blob(item.chunks, { type: item.mime });
-    item.state = "done"; S.rec = null; S.emit("rec"); S.emit("recs");
+    item.dur += item.state === "rec" ? Date.now() - item.t0 : 0; await item.chain;
+    if (item.writer) { try { await item.writer.close(); } catch (e) { /* נסגר */ } } else item.blob = new Blob(item.chunks, { type: item.mime });
+    item.state = "done"; if (item.main) { S.rec = null; S.emit("rec"); } S.emit("recs");
   };
-  mr.start(1000); S.rec = item; S.recordings.unshift(item); S.emit("rec"); S.emit("recs");
+  mr.start(1000);
+}
+S.isoStream = function (s) {
+  if (s.stream && (s.stream.getVideoTracks().length || s.stream.getAudioTracks().length)) return s.stream;
+  if (s.el && s.el.captureStream && (s.kind === "video" || s.kind === "audio")) { try { return s.el.captureStream(); } catch (e) { return null; } }
+  return null;
 };
-S.recPause = function () { const r = S.rec; if (!r) return; if (r.mr.state === "recording") { r.dur += Date.now() - r.t0; r.mr.pause(); r.state = "pause"; } else { r.t0 = Date.now(); r.mr.resume(); r.state = "rec"; } S.emit("rec"); };
-S.recStop = function () { if (S.rec) S.rec.mr.stop(); };
+S.recStart = async function () {
+  if (S.rec) return; ensureAudio();
+  const pm = S.pickMime(); if (!pm) throw new Error("הדפדפן לא תומך בהקלטה");
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-"), name = "הקלטה_" + stamp + "." + pm[0];
+  const item = newItem(name, pm, { main: true }); let dir = null;
+  if (S.settings.iso && window.showDirectoryPicker) {  // תיקייה אחת: ההקלטה הראשית והקלטה נפרדת לכל מקור
+    try { dir = await window.showDirectoryPicker({ mode: "readwrite" }); } catch (e) { if (e.name === "AbortError") throw new Error("בוטל"); dir = null; }
+  }
+  if (dir) { item.handle = await dir.getFileHandle(name, { create: true }); item.writer = await item.handle.createWritable(); item.name = name; }
+  else if (window.showSaveFilePicker) {
+    try { item.handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "וידאו", accept: { [pm[0] === "mp4" ? "video/mp4" : "video/webm"]: ["." + pm[0]] } }] });
+      item.writer = await item.handle.createWritable(); item.name = item.handle.name; }
+    catch (e) { if (e.name === "AbortError") throw new Error("בוטל"); item.handle = null; }
+  }
+  wire(item, S.outStream, S.settings.bitrate * 1e6); S.rec = item; S.recAll = [item]; S.recordings.unshift(item);
+  if (S.settings.iso) for (const s of S.sources) {  // הקלטה נפרדת לכל מקור עם תמונה או שמע
+    const st = S.isoStream(s); if (!st) continue; const nm = (s.name || "מקור").replace(/[\\/:*?"<>|]/g, "_") + "_" + stamp + "." + pm[0], it = newItem(nm, pm, { iso: true });
+    try { if (dir) { it.handle = await dir.getFileHandle(nm, { create: true }); it.writer = await it.handle.createWritable(); } wire(it, st, 6e6); S.recAll.push(it); S.recordings.unshift(it); } catch (e) { /* מקור שאי אפשר להקליט */ }
+  }
+  S.emit("rec"); S.emit("recs");
+};
+S.recPause = function () {
+  const r = S.rec; if (!r) return; const pausing = r.mr.state === "recording";
+  (S.recAll || [r]).forEach(i => { if (i.mr.state === "inactive") return; if (pausing) { i.dur += Date.now() - i.t0; i.mr.pause(); i.state = "pause"; } else { i.t0 = Date.now(); i.mr.resume(); i.state = "rec"; } }); S.emit("rec");
+};
+S.recStop = function () { (S.recAll || (S.rec ? [S.rec] : [])).forEach(i => { if (i.mr.state !== "inactive") i.mr.stop(); }); };
 S.recElapsed = r => r.dur + (r.state === "rec" ? Date.now() - r.t0 : 0);
 S.recFile = async function (r) { return r.handle ? r.handle.getFile() : r.blob; };
 S.recDownload = async function (r) {
@@ -553,7 +586,7 @@ S.uploadDrive = async function (r, onProg) {
 /* ---------- שמירה וטעינה ---------- */
 S.KEY = "studio.v1";
 S.snapshot = function (forExport) {
-  return { v: 1, settings: forExport && S.settings.stream ? Object.assign({}, S.settings, { stream: Object.assign({}, S.settings.stream, { key: "" }) }) : S.settings, pgm: S.pgm, pvw: S.pvw,
+  return { v: 1, settings: forExport && S.settings.stream ? Object.assign({}, S.settings, { stream: Object.assign({}, S.settings.stream, { key: "", key2: "" }) }) : S.settings, pgm: S.pgm, pvw: S.pvw,
     show: S.show, scenes: S.scenes, overlays: S.overlays.map(o => Object.assign({}, o, { _a: 0, on: false })),
     sources: S.sources.map(s => ({ id: s.id, def: s.persist ? s.def : { kind: s.kind, name: s.name, props: {} }, persist: s.persist, audio: s.audio || null })) };
 };
@@ -564,11 +597,46 @@ S.restore = async function (data) {
   S.pgm = data.pgm; S.pvw = data.pvw; const fails = [];
   for (const sd of data.sources || []) {
     try {
-      if (sd.persist && ["device", "mic", "text", "color", "image"].includes(sd.def.kind)) { const s = await S.addSource(sd.def, sd.id); if (sd.audio && s.audio) { Object.assign(s.audio, sd.audio); S.applyStrip(s, true); } }
+      if (sd.persist && ["device", "mic", "text", "color", "image", "web"].includes(sd.def.kind)) { const s = await S.addSource(sd.def, sd.id); if (sd.audio && s.audio) { Object.assign(s.audio, sd.audio); S.applyStrip(s, true); } }
       else S.addMissing(sd.def, sd.id);
     } catch (e) { fails.push(sd.def.name + ": " + e.message); }
   }
   S.emit("sources"); S.emit("scenes"); return fails;
 };
 S.urls = {};
+
+/* מסגרות של מקור דף אינטרנט מגיעות מהתוכנה (BGRA), והופכות לקנבס */
+if (window.studioDesktop && studioDesktop.onWebFrame) studioDesktop.onWebFrame((id, w, h, buf) => {
+  const s = S.src(id); if (!s || !s.canvas) return; const c = s.canvas; if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const u = new Uint8ClampedArray(buf.buffer ? buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) : buf); for (let i = 0; i < u.length; i += 4) { const t = u[i]; u[i] = u[i + 2]; u[i + 2] = t; }
+  c.getContext("2d").putImageData(new ImageData(u, w, h), 0, 0); s.got = true;
+});
+
+/* הפעלה חוזרת: מאגר רץ של קטעים קצרים מהשידור. "הפעלה חוזרת" מחברת את האחרונים למקור וידאו שמנגן אותם (אפשר בהילוך איטי) */
+const RP = S.replay = { on: false, segs: [], rec: null, timer: null };
+const SEG_MS = 5000, SEG_KEEP = 8;
+function replayMime() { return ["video/webm;codecs=vp8,opus", "video/webm"].find(m => MediaRecorder.isTypeSupported(m)); }
+function replayStart() {
+  const chunks = [], mr = new MediaRecorder(S.outStream, { mimeType: replayMime(), videoBitsPerSecond: 4e6, audioBitsPerSecond: 128000 }); mr.t0 = Date.now();
+  mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  mr.onstop = () => { if (chunks.length) { RP.segs.push({ blob: new Blob(chunks, { type: "video/webm" }), dur: (Date.now() - mr.t0) / 1000 }); while (RP.segs.length > SEG_KEEP) RP.segs.shift(); } if (mr.done) mr.done(); };
+  mr.start(); return mr;
+}
+function replayRotate() { const old = RP.rec; RP.rec = replayStart(); return new Promise(ok => { if (!old) return ok(); old.done = ok; try { old.stop(); } catch (e) { ok(); } }); }
+S.replayEnable = function (on) {
+  clearInterval(RP.timer); RP.on = !!on;
+  if (!on) { try { if (RP.rec) RP.rec.stop(); } catch (e) { /* סגור */ } RP.rec = null; RP.segs = []; return; }
+  if (!S.outStream) return; RP.rec = replayStart(); RP.timer = setInterval(replayRotate, SEG_MS);
+};
+S.replayClip = async function (seconds, rate) {
+  if (!RP.on) throw new Error("המאגר של ההפעלה החוזרת כבוי. מפעילים אותו בלשונית הקלטה.");
+  await replayRotate(); const list = []; let tot = 0;
+  for (let i = RP.segs.length - 1; i >= 0 && tot < seconds; i--) { list.unshift(RP.segs[i].blob); tot += RP.segs[i].dur; }
+  if (!list.length) throw new Error("עוד אין מספיק הקלטה במאגר. נסו שוב בעוד כמה שניות.");
+  let src = S.sources.find(x => x.replayClip);
+  if (src) { const id = src.id; S.disposeSource(src); src = await S.addSource({ kind: "video", name: "הפעלה חוזרת", file: list[0] }, id); } else src = await S.addSource({ kind: "video", name: "הפעלה חוזרת", file: list[0] });
+  src.replayClip = true; const el = src.el; let idx = 0, urls = [src.url];
+  el.playbackRate = rate || 1; el.onended = () => { if (++idx < list.length) { const u = URL.createObjectURL(list[idx]); urls.push(u); el.src = u; el.playbackRate = rate || 1; el.play().catch(() => {}); } };
+  S.ensureAudio(); el.play().catch(() => {}); return src;
+};
 })();

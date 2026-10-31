@@ -59,6 +59,8 @@ function strip(s) {
     U.check("מדחס עוצמה", a.comp, v => { a.comp = v; ap(); }, "מקרב בין הצלילים החזקים לחלשים, כדי שדיבור יישמע אחיד."),
     U.field("שער רעש (מעל הערך בלבד נשמע)", U.range(-70, -20, 1, a.gate, v => { a.gate = v; S.save(); }, v => (v <= -70 ? "כבוי" : v + " dB")), "משתיק את המקור כשאין דיבור, ומונע רעש רקע. התחילו מ- -45 והתאימו."),
     U.field("השהיית שמע (אלפיות שנייה)", U.range(0, 1000, 10, a.delay, v => { a.delay = v; ap(); }, v => v + " מ\"ש"), "אם הקול מקדים או מאחר אחרי התמונה, מכוונים כאן את הסנכרון."),
+    U.field("הנמכה אוטומטית כשמישהו מדבר", U.sel([["", "בלי הנמכה"]].concat(S.sources.filter(x => x.hasAudio && x !== s).map(x => [x.id, "כשמדבר: " + x.name])), a.duck || "", v => { a.duck = v; S.save(); }), "מתאים למוזיקת רקע: היא מונמכת לבד כשהמקור שבחרתם (למשל מיקרופון) מדבר, וחוזרת כשהוא שותק."),
+    a.duck ? U.field("עד כמה להנמיך", U.range(5, 90, 5, a.duckAmt == null ? 30 : a.duckAmt, v => { a.duckAmt = v; S.save(); }, v => "ל-" + v + "%")) : null,
     U.field("מתי המקור נשמע", U.sel([["always", "תמיד"], ["follow", "רק כשהוא מופיע בשידור"]], a.mode, v => { a.mode = v; S.save(); }), "\"רק כשהוא מופיע\" מתאים לכמה מצלמות: הקול עובר ביחד עם התמונה."));
   return h("div", { class: "strip" }, h("div", { class: "sh" }, h("b", { text: s.name }), h("button", { class: "mini" + (a.mute ? " on" : ""), text: a.mute ? "🔇 מושתק" : "🔈", title: "השתקה", onclick: e => { a.mute = !a.mute; e.currentTarget.className = "mini" + (a.mute ? " on" : ""); e.currentTarget.textContent = a.mute ? "🔇 מושתק" : "🔈"; S.save(); } })),
     meter(s), U.field("עוצמה", U.range(0, 1.5, .01, a.vol, v => { a.vol = v; S.save(); }, v => Math.round(v * 100) + "%")), adv);
@@ -115,6 +117,12 @@ U.renderRec = function () {
     h("div", { class: "row" }, h("button", { class: "btn rec", text: S.rec ? "⏹ עצירה" : "⏺ התחלת הקלטה", onclick: U.toggleRec }), S.rec ? h("button", { class: "btn", text: S.rec.state === "pause" ? "▶ המשך" : "⏸ השהיה", onclick: () => S.recPause() }) : null),
     U.field("איכות", U.sel([[4, "רגילה (4 מגה-ביט)"], [8, "גבוהה (8)"], [12, "גבוהה מאוד (12)"], [20, "מקסימלית (20)"]], st.bitrate, v => { st.bitrate = +v; S.save(); }), "איכות גבוהה יותר = קובץ גדול יותר."),
     U.field("סוג קובץ", U.sel([["auto", "אוטומטי (MP4 אם אפשר)"], ["mp4", "MP4 - מתאים לכל מכשיר"], ["webm", "WebM"]], st.container, v => { st.container = v; S.save(); }), "שינוי חל על ההקלטה הבאה."),
+    U.check("הקלטה נפרדת לכל מקור (ISO)", st.iso, v => { st.iso = v; S.save(); }, "מקליט גם כל מצלמה, מסך ומיקרופון בנפרד, בקובץ משלו, כדי לערוך אחר כך. דורש Chrome או Edge, ובוחרים תיקייה אחת בתחילת ההקלטה."),
+    h("h3", { text: "הפעלה חוזרת" }), h("p", { class: "hint", text: "מחזיק ברקע את הרגעים האחרונים של השידור. בלחיצה אחת (מקש Y) מופיעה סצנה שמשמיעה אותם שוב, אפשר בהילוך איטי." }),
+    U.check("הפעלת מאגר הפעלה חוזרת", st.replay, v => { st.replay = v; S.replayEnable(v); S.save(); const b = $("#btnReplay"); if (b) b.hidden = !v; }, "צורך מעט זיכרון ומעבד, ולכן כבוי כברירת מחדל."),
+    U.field("כמה שניות לחזור", U.sel([[5, "5 שניות"], [10, "10 שניות"], [20, "20 שניות"], [30, "30 שניות"]], st.replaySec || 10, v => { st.replaySec = +v; S.save(); })),
+    U.field("מהירות", U.sel([[1, "רגילה"], [0.5, "הילוך איטי (חצי)"], [0.25, "הילוך איטי מאוד"]], st.replayRate || 1, v => { st.replayRate = +v; S.save(); })),
+    h("div", { class: "row" }, h("button", { class: "btn go", text: "⏪ הפעלה חוזרת עכשיו", onclick: () => U.act("replay") })),
     h("h3", { text: "הקלטות" }), h("div", { id: "recList" }));
   U.renderRecList();
 };
@@ -142,15 +150,38 @@ U.renderSettings = function () {
   const body = $("#tabBody"), st = S.settings; body.innerHTML = "";
   body.append(
     U.field("רזולוציית השידור וההקלטה", U.sel([["1280x720", "720p"], ["1920x1080", "1080p (מומלץ)"], ["2560x1440", "1440p"], ["3840x2160", "4K (כבד מאוד)"]], st.w + "x" + st.h, v => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); U.renderSettings(); return; } const [w, hh] = v.split("x").map(Number); S.setSize(w, hh); S.save(); }), "אם המחשב מתקשה והתמונה קופצת, הורידו לרזולוציה נמוכה או ל-30 תמונות בשנייה."),
+    h("h3", { text: "מעבר בסרטון (סטינגר)" }), h("p", { class: "hint", text: "סרטון קצר שמתנגן מעל המסך בזמן החלפת סצנה, כמו במשדרי טלוויזיה. הוסיפו אותו כמקור \"סרטון\" (עדיף WebM עם שקיפות), בחרו אותו כאן, ובתפריט המעברים בחרו \"סטינגר\"." }),
+    U.field("סרטון המעבר", U.sel([["", "(לא נבחר)"]].concat(S.sources.filter(x => x.kind === "video" && !x.replayClip).map(x => [x.id, x.name])), st.stingerSrc || "", v => { st.stingerSrc = v || null; S.save(); })),
+    U.field("רגע ההחלפה בתוך הסרטון", U.range(.1, .9, .05, st.stingerCut == null ? .5 : st.stingerCut, v => { st.stingerCut = v; S.save(); }, v => Math.round(v * 100) + "%"), "הסצנה מוחלפת כשהסרטון מכסה את המסך. בדרך כלל באמצע."),
     U.field("קצב תמונות", U.sel([[24, "24"], [30, "30 (מומלץ)"], [60, "60 (לתנועה חלקה, כבד)"]], st.fps, v => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); U.renderSettings(); return; } S.setFps(+v); S.save(); })),
     h("div", { class: "row" }, h("button", { class: "btn go", text: "⚡ מצב מהירות (720p, 60 תמונות)", title: "הכי פחות השהיה, ופחות עומס על המחשב", onclick: () => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); return; } S.setSize(1280, 720); S.setFps(60); S.save(); U.renderSettings(); U.toast("מצב מהירות הופעל"); } }),
       h("button", { class: "btn", text: "🎞️ מצב איכות (1080p, 30 תמונות)", onclick: () => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); return; } S.setSize(1920, 1080); S.setFps(30); S.save(); U.renderSettings(); U.toast("מצב איכות הופעל"); } })),
     U.check("מצב אולפן (תצוגה מקדימה לפני שידור)", st.studio, v => { st.studio = v; if (!v) S.pvw = S.pgm; S.emit("scenes"); S.save(); }, "מדליקים: בוחרים סצנה, רואים אותה בצד, ולוחצים \"שידור\". מכבים: לחיצה על סצנה משדרת אותה מיד."),
+    h("h3", { text: "מערכי סצנות שמורים" }), h("p", { class: "hint", text: "שומרים את כל הסצנות, השכבות והתוכנית בשם (למשל \"שיעור\" או \"אירוע\"), וטוענים אחר כך בלחיצה. המקורות (מצלמות וקבצים) לא נשמרים בתוכם." }), h("div", { id: "profBox" }),
     h("h3", { text: "גיבוי ההגדרות" }), h("p", { class: "hint", text: "שומרים את הסצנות, השכבות וההגדרות לקובץ, ואפשר לטעון אותו במחשב אחר. המקורות (מצלמות וקבצים) יש לחבר מחדש." }),
     h("div", { class: "row" }, h("button", { class: "btn", text: "⬇ שמירה לקובץ", onclick: () => { const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(S.snapshot(true))], { type: "application/json" })), download: "studio-settings.json" }); document.body.append(a); a.click(); a.remove(); } }),
       h("label", { class: "btn" }, "⬆ טעינה מקובץ", h("input", { type: "file", accept: ".json", hidden: true, onchange: e => { const f = e.target.files[0]; if (!f) return; f.text().then(async t => { try { const d = JSON.parse(t); await restoreAll(d); U.toast("ההגדרות נטענו"); } catch (er) { U.toast("הקובץ לא תקין", true); } }); } })),
       h("button", { class: "btn danger", text: "איפוס הכול", onclick: () => U.confirm("לאפס את כל הסצנות, השכבות וההגדרות?", async () => { localStorage.removeItem(S.KEY); location.reload(); }) })),
     h("h3", { text: "מקשי קיצור" }), h("table", { class: "keys" }, [["1-9", "בחירת סצנה"], ["רווח / Enter", "שידור התצוגה המקדימה"], ["C", "חיתוך מיידי"], ["Shift + 1-9", "הצגה או הסתרה של שכבה"], ["M", "השתקה / ביטול השתקה כללי"], ["לחיצה כפולה על סצנה", "שידור מיידי"], ["לחיצה כפולה בחלון ההצגה", "מסך מלא"]].map(([k, v]) => h("tr", {}, h("th", { text: k }), h("td", { text: v })))));
+  fillProfiles();
+};
+const PK = "studio.profiles";
+const profs = () => { try { return JSON.parse(localStorage.getItem(PK) || "{}"); } catch (e) { return {}; } };
+function fillProfiles() {
+  const box = $("#profBox"); if (!box) return; box.innerHTML = ""; const all = profs(), nm = h("input", { type: "text", placeholder: "שם המערך" });
+  box.append(h("div", { class: "row" }, nm, h("button", { class: "btn go", text: "💾 שמירת המערך הנוכחי", onclick: () => { const n = nm.value.trim(); if (!n) { U.toast("כתבו שם", true); return; }
+    const a = profs(); a[n] = { scenes: JSON.parse(JSON.stringify(S.scenes, (k, v) => (k === "_thumb" ? undefined : v))), overlays: S.overlays.map(o => Object.assign({}, o, { on: false, _a: 0 })), show: S.show, at: Date.now() };
+    try { localStorage.setItem(PK, JSON.stringify(a)); U.toast("נשמר: " + n); fillProfiles(); } catch (e) { U.toast("אין מקום לשמירה", true); } } })));
+  Object.keys(all).forEach(n => box.append(h("div", { class: "rc" }, h("div", { class: "meta" }, h("b", { text: n }), h("small", { text: all[n].scenes.length + " סצנות" })),
+    h("div", { class: "acts" }, h("button", { class: "btn", text: "טעינה", onclick: () => U.confirm("לטעון את \"" + n + "\"? הסצנות והשכבות הנוכחיות יוחלפו.", () => {
+      S.scenes = JSON.parse(JSON.stringify(all[n].scenes)); S.overlays = (all[n].overlays || []).map(o => Object.assign({}, o, { _a: 0 })); S.show = all[n].show || { steps: [], loop: false, startAt: "" };
+      if (!S.scene(S.pgm)) S.pgm = S.scenes[0] && S.scenes[0].id; S.pvw = S.scene(S.pvw) ? S.pvw : S.pgm; S.emit("scenes"); S.save(); U.renderTabs(); U.toast("נטען: " + n); }) }),
+      h("button", { class: "mini", text: "🗑", onclick: () => { const a = profs(); delete a[n]; localStorage.setItem(PK, JSON.stringify(a)); fillProfiles(); } })))));
+}
+U.replayNow = async function () {
+  const st = S.settings, src = await S.replayClip(st.replaySec || 10, st.replayRate || 1);
+  let sc = S.scenes.find(x => x.replay); if (!sc) { sc = S.newScene("הפעלה חוזרת", "full"); sc.replay = true; sc.opts.bg1 = sc.opts.bg2 = "#000000"; S.scenes.push(sc); }
+  sc.slots[0].src = src.id; sc.slots[0].fit = "contain"; S.emit("scenes"); S.save(); S.goLive(sc.id); U.toast("הפעלה חוזרת: " + (st.replaySec || 10) + " שניות");
 };
 async function restoreAll(d) { S.sources.slice().forEach(s => S.disposeSource(s)); const f = await S.restore(d); S.setSize(S.settings.w, S.settings.h); S.start(); U.renderTabs(); U.renderTrans(); if (f.length) U.toast("חלק מההתקנים לא התחברו: " + f.join(" | "), true); }
 
@@ -174,6 +205,7 @@ U.init(async () => {
   if (saved && saved.scenes) fails = await S.restore(saved); else defaults();
   if (!S.scene(S.pgm) && S.scenes[0]) S.pgm = S.scenes[0].id; if (!S.scene(S.pvw) && S.scenes[0]) S.pvw = (S.scenes[1] || S.scenes[0]).id;
   S.start(); U.renderTabs(); U.renderTrans(); U.renderSources(); U.renderScenes(); U.nextLabel();
+  { const rb = $("#btnReplay"); if (rb) rb.hidden = !S.settings.replay; if (S.settings.replay) S.replayEnable(true); }
   if (fails.length) U.toast("חלק מההתקנים לא התחברו: " + fails.join(" | "), true);
   document.addEventListener("click", () => S.ensureAudio(), { once: true });
   let seen = false; try { seen = localStorage.getItem("studio.welcome") === "1"; } catch (e) { /* בלי שמירה */ }

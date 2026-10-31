@@ -55,6 +55,7 @@ function build() {
       h("button", { class: "btn", id: "btnOut", text: "🖥️ חלון הצגה (מסך שני)", title: "פותח חלון נפרד שמציג את השידור במסך המלא, למשל במקרן או במסך השני", onclick: U.openOutput }),
       h("button", { class: "btn rec", id: "btnRec", text: "⏺ הקלטה", onclick: U.toggleRec }),
       h("button", { class: "btn", id: "btnMon", title: "שמיעת השידור במחשב הזה. שימו אוזניות, אחרת תהיה יבבה", onclick: U.toggleMon }),
+      h("button", { class: "btn", id: "btnReplay", text: "⏪ הפעלה חוזרת", title: "מציג שוב את 10 השניות האחרונות (מקש Y). המאגר מופעל בלשונית הקלטה", hidden: true, onclick: () => U.act("replay") }),
       h("button", { class: "btn", id: "btnBrb", text: "⏸ רגע, חוזרים", title: "מעבר מיידי למסך המתנה, ולחיצה נוספת חוזרת (מקש B)", onclick: () => U.brb() }),
       h("button", { class: "btn", id: "btnA11y", text: "♿ נגישות", title: "גודל כתב, ניגודיות והפחתת תנועה", onclick: () => U.a11yDlg() }),
       h("button", { class: "btn go", id: "btnInstall", text: "📥 התקנה כתוכנה", title: "מתקין את האולפן כתוכנה במחשב, עם סמל וחלון משלו, ועובד גם בלי אינטרנט", hidden: true, onclick: () => U.install() }),
@@ -106,8 +107,8 @@ U.openOutput = async function () {
 };
 
 /* ---------- מקורות ---------- */
-const KIND = { device: ["📹", "מצלמה / כרטיס לכידה"], mic: ["🎤", "מיקרופון"], screen: ["🖥️", "שיתוף מסך"], video: ["🎞️", "סרטון"], audio: ["🎵", "שמע"], image: ["🖼️", "תמונה"], slides: ["📑", "מצגת"], text: ["🔤", "טקסט"], color: ["🎨", "צבע"] };
-U.visualKinds = ["device", "screen", "video", "image", "slides", "text", "color"];
+const KIND = { device: ["📹", "מצלמה / כרטיס לכידה"], mic: ["🎤", "מיקרופון"], screen: ["🖥️", "שיתוף מסך"], video: ["🎞️", "סרטון"], audio: ["🎵", "שמע"], image: ["🖼️", "תמונה"], slides: ["📑", "מצגת"], text: ["🔤", "טקסט"], color: ["🎨", "צבע"], web: ["🌐", "דף אינטרנט (בתוכנה למחשב)"] };
+U.visualKinds = ["device", "screen", "video", "image", "slides", "text", "color", "web"];
 const isVisual = s => U.visualKinds.includes(s.kind);
 
 U.renderSources = function () {
@@ -136,7 +137,7 @@ setInterval(() => S.sources.forEach(s => { if (s._thumb && s._thumb.isConnected)
 
 U.addSourceDlg = function (kind, reuse) {
   if (typeof kind === "string") return U.addSourceForm(kind, reuse);
-  const g = h("div", { class: "kinds" }, Object.entries(KIND).map(([k, [i, l]]) => h("button", { class: "kind", onclick: () => U.addSourceForm(k) }, h("span", { text: i }), h("b", { text: l }))));
+  const g = h("div", { class: "kinds" }, Object.entries(KIND).filter(([k]) => k !== "web" || (window.studioDesktop && studioDesktop.hasBrowserSource)).map(([k, [i, l]]) => h("button", { class: "kind", onclick: () => U.addSourceForm(k) }, h("span", { text: i }), h("b", { text: l }))));
   U.dialog("הוספת מקור", [h("p", { class: "hint", text: "בחרו מה להכניס לאולפן. אפשר להוסיף כמה שרוצים ולשלב ביניהם בסצנות." }), g], [["סגירה", null, ""]], true);
 };
 const RES = [["1280x720", "720p (HD)"], ["1920x1080", "1080p (Full HD)"], ["2560x1440", "1440p"], ["3840x2160", "4K"]];
@@ -183,6 +184,14 @@ U.addSourceForm = async function (kind, reuse) {
   }
   if (kind === "text") { const q = { text: "כותרת", size: 120, color: "#ffffff", bg: "#16233F", align: "center", bold: true }; Object.assign(p, q, reuse ? reuse.props : {}); U.textFields(body, p, () => {}); body.prepend(U.field("שם", U.text(name, v => (name = v), "כותרת פתיחה")));
     return U.dialog(title, body, [["הוספה", async () => { U.afterAdd(await S.addSource({ kind, name: name || "טקסט", props: p }, reuse && reuse.id)); }, "go"], ["ביטול", null, ""]]); }
+  if (kind === "web") {
+    Object.assign(p, { url: "https://", w: 1280, h: 720, fps: 15 }, reuse ? reuse.props : {});
+    body.append(h("p", { class: "hint", text: "מציג דף אינטרנט כשכבה בשידור: למשל תגובות חיות, לוח תוצאות, שעון או כל דף. רקע שקוף בדף יישאר שקוף." }), U.field("כתובת הדף", U.text(p.url, v => (p.url = v), "https://...")),
+      U.field("גודל", U.sel([["960x540", "960x540 (קל)"], ["1280x720", "1280x720"], ["1920x1080", "1920x1080 (כבד)"]], p.w + "x" + p.h, v => { [p.w, p.h] = v.split("x").map(Number); })),
+      U.field("קצב רענון", U.sel([[10, "10 תמונות בשנייה"], [15, "15 (מומלץ)"], [30, "30"]], p.fps, v => (p.fps = +v))), U.field("שם", U.text(name, v => (name = v), "דף אינטרנט")));
+    return U.dialog(title, body, [["הוספה", async () => { if (!/^https?:\/\//i.test(p.url)) { U.toast("הכתובת צריכה להתחיל ב-http או https", true); return false; }
+      try { U.afterAdd(await S.addSource({ kind, name: name || "דף אינטרנט", props: p }, reuse && reuse.id)); } catch (e) { U.toast(e.message, true); return false; } }, "go"], ["ביטול", null, ""]]);
+  }
   if (kind === "color") { p.color = p.color || "#16233F"; body.append(U.field("שם", U.text(name, v => (name = v), "רקע כחול")), U.field("צבע", U.color(p.color, v => (p.color = v))));
     return U.dialog(title, body, [["הוספה", async () => { U.afterAdd(await S.addSource({ kind, name: name || "צבע", props: p }, reuse && reuse.id)); }, "go"], ["ביטול", null, ""]]); }
 };
@@ -267,7 +276,7 @@ U.renderEditor = function () {
   const o = sc.opts, ch = () => S.save();
   const srcOpts = [["", "(ריק)"]].concat(S.sources.filter(isVisual).map(s => [s.id, s.name]));
   box.append(h("h2", {}, "עריכת סצנה: ", h("input", { class: "inl", value: sc.name, oninput: e => { sc.name = e.target.value; ch(); }, onchange: () => U.renderScenes() }), h("small", { text: S.settings.studio ? " (התצוגה המקדימה)" : " (בשידור)" })),
-    U.field("אחרי הסצנה הזו עוברים אל (מקש N, כפתור \"הבאה\", שלט מצגות וטלפון)", U.sel([["", "הסצנה הבאה ברשימה"]].concat(S.scenes.filter(x => x !== sc && !x.brb).map(x => [x.id, x.name])), sc.next || "", v => { sc.next = v; ch(); U.nextLabel(); })),
+    U.field("אחרי הסצנה הזו עוברים אל (מקש N, כפתור \"הבאה\", שלט מצגות וטלפון)", U.sel([["", "הסצנה הבאה ברשימה"]].concat(S.scenes.filter(x => x !== sc && !x.brb && !x.replay).map(x => [x.id, x.name])), sc.next || "", v => { sc.next = v; ch(); U.nextLabel(); })),
     h("div", { class: "lays" }, Object.keys(S.LAYOUTS).map(k => h("button", { class: "lay" + (sc.layout === k ? " on" : ""), title: S.LAYOUTS[k].name, onclick: () => { sc.layout = k; sc.slots.forEach(x => { x.rect = null; }); S.emit("scenes"); } }, miniLayout(k), h("small", { text: S.LAYOUTS[k].name })))));
   const n = S.slotCount(sc), slots = h("div", { class: "slots" }), nl = S.cellsOf(sc).length;
   for (let i = 0; i < n; i++) {
@@ -319,6 +328,7 @@ document.addEventListener("keydown", e => {
   else if (e.code === "KeyC") U.safeLive(S.pvw, "cut");
   else if (e.code === "KeyB") U.brb();
   else if (e.code === "KeyN") U.act("next");
+  else if (e.code === "KeyY") U.act("replay");
   else if (e.code === "KeyM") { S.settings.masterVol = S.settings.masterVol > 0 ? 0 : 1; S.applyAudioSettings(); if (U.renderMixer) U.renderMixer(); }
 });
 

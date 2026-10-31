@@ -40,26 +40,28 @@ async function probeEncoders() {
 }
 const ENC = { x264: ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency"], nvenc: ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll", "-rc", "cbr"],
   qsv: ["-c:v", "h264_qsv", "-preset", "veryfast"], amf: ["-c:v", "h264_amf", "-usage", "lowlatency", "-rc", "cbr"] };
-function ffArgs(o, target) {
+function ffArgs(o, targets) {
   const fps = Math.max(10, Math.min(60, +o.fps || 30)), v = Math.max(300, Math.min(20000, +o.vbit || 2500)), gop = fps * 2;
   return ["-hide_banner", "-loglevel", "info", "-fflags", "+nobuffer+genpts", "-flags", "low_delay", "-probesize", "32768", "-analyzeduration", "0", "-i", "pipe:0",
     "-vf", (o.height ? `scale=-2:${Math.round(o.height)},` : "") + "format=yuv420p", "-r", String(fps), ...ENC[o.encoder] || ENC.x264,
     "-b:v", v + "k", "-maxrate", v + "k", "-bufsize", v * 2 + "k", "-g", String(gop), "-keyint_min", String(gop),
-    "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-f", "flv", target];
+    "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+    ...(targets.length > 1 ? ["-map", "0:v:0", "-map", "0:a:0", "-f", "tee", targets.map(t => `[f=flv:onfail=ignore]${t}`).join("|")] : ["-f", "flv", targets[0]])];
 }
 ipcMain.handle("stream-encoders", async e => (studioFrame(e) ? probeEncoders() : []));
 ipcMain.handle("stream-start", async (e, o) => {
   if (!studioFrame(e)) return { error: "לא מורשה" };
   if (ff) return { error: "כבר משדרים" };
-  if (!/^rtmps?:\/\//i.test(o.url || "")) return { error: "כתובת השרת צריכה להתחיל ב-rtmp:// או rtmps://" };
-  const key = String(o.key || ""), target = o.url.replace(/\/+$/, "") + (key ? "/" + key : ""), send = s => { try { e.sender.send("stream-status", s); } catch (er) { /* נסגר */ } };
+  const dests = (Array.isArray(o.dests) && o.dests.length ? o.dests : [{ url: o.url, key: o.key }]).slice(0, 3);
+  if (dests.some(d => !/^rtmps?:\/\//i.test(d.url || ""))) return { error: "כתובת השרת צריכה להתחיל ב-rtmp:// או rtmps://" };
+  const keys = dests.map(d => String(d.key || "")).filter(Boolean), targets = dests.map(d => d.url.replace(/\/+$/, "") + (d.key ? "/" + d.key : "")), send = s => { try { e.sender.send("stream-status", s); } catch (er) { /* נסגר */ } };
   let enc = o.encoder; if (!enc || enc === "auto") { const f = await probeEncoders(); enc = f.includes("nvenc") ? "nvenc" : f.includes("qsv") ? "qsv" : f.includes("amf") ? "amf" : "x264"; }
-  const mask = t => (key ? t.split(key).join("***") : t); ffStopping = false; let live = false, tail = "";
-  try { ff = spawn(ffPath(), ffArgs(Object.assign({}, o, { encoder: enc }), target), { stdio: ["pipe", "ignore", "pipe"], windowsHide: true }); } catch (er) { ff = null; return { error: "לא הצלחנו להפעיל את המקודד" }; }
+  const mask = t => keys.reduce((a, k) => a.split(k).join("***"), t); ffStopping = false; let live = false, tail = "";
+  try { ff = spawn(ffPath(), ffArgs(Object.assign({}, o, { encoder: enc }), targets), { stdio: ["pipe", "ignore", "pipe"], windowsHide: true }); } catch (er) { ff = null; return { error: "לא הצלחנו להפעיל את המקודד" }; }
   const me = ff; me.stdin.on("error", () => {});
   me.stderr.on("data", d => {
-    const t = d.toString(); tail = (tail + t).slice(-1500); const m = /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?time=(\S+)\s+bitrate=\s*([\d.]+)kbits\/s.*?speed=\s*([\d.]+)x/.exec(t);
-    if (m) { live = true; send({ state: "live", fps: +m[2], time: m[3], bitrate: +m[4], speed: +m[5], encoder: enc }); }
+    const t = d.toString(); tail = (tail + t).slice(-1500); const m = /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?time=(\S+)\s+bitrate=\s*(\S+).*?speed=\s*([\d.]+)x/.exec(t);
+    if (m) { live = true; send({ state: "live", fps: +m[2], time: m[3], bitrate: parseFloat(m[4]) || 0, speed: +m[5], encoder: enc }); }
   });
   me.on("close", code => { if (ff === me) ff = null; if (ffStopping) send({ state: "stopped" }); else send({ state: "error", message: mask(tail).split(/\r?\n/).filter(Boolean).slice(-3).join(" | ").slice(0, 300) || "החיבור נותק", live }); });
   send({ state: "starting", encoder: enc }); return { ok: true, encoder: enc };
@@ -67,6 +69,20 @@ ipcMain.handle("stream-start", async (e, o) => {
 ipcMain.on("stream-chunk", (e, buf) => { if (studioFrame(e) && ff && ff.stdin.writable && ff.stdin.writableLength < 24e6) ff.stdin.write(Buffer.from(buf)); });
 ipcMain.handle("stream-stop", e => { if (!studioFrame(e) || !ff) return true; ffStopping = true; const me = ff; try { me.stdin.end(); } catch (er) { /* סגור */ } setTimeout(() => { try { me.kill(); } catch (er) { /* סגור */ } }, 2500); return true; });
 app.on("before-quit", () => { try { if (ff) ff.kill(); } catch (e) { /* סגור */ } });
+
+/* מקור "דף אינטרנט": חלון נסתר שמצייר דף ושולח את התמונה (עם שקיפות) לאולפן */
+const webWins = new Map();
+ipcMain.handle("web-start", (e, o) => {
+  if (!studioFrame(e)) return { error: "לא מורשה" };
+  if (!/^https?:\/\//i.test(o.url || "")) return { error: "הכתובת צריכה להתחיל ב-http או https" };
+  const id = String(o.id), w = Math.max(160, Math.min(1920, +o.w || 1280)), h = Math.max(90, Math.min(1080, +o.h || 720)), fps = Math.max(1, Math.min(30, +o.fps || 15));
+  if (webWins.has(id)) { try { webWins.get(id).destroy(); } catch (er) { /* סגור */ } }
+  const bw = new BrowserWindow({ show: false, width: w, height: h, frame: false, transparent: true, webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  bw.webContents.setFrameRate(fps); bw.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  bw.webContents.on("paint", (_ev, _dirty, image) => { try { const sz = image.getSize(); e.sender.send("web-frame", id, sz.width, sz.height, image.toBitmap()); } catch (er) { /* נסגר */ } });
+  bw.on("closed", () => webWins.delete(id)); webWins.set(id, bw); bw.loadURL(o.url).catch(() => {}); return { ok: true };
+});
+ipcMain.handle("web-stop", (e, id) => { if (!studioFrame(e)) return false; const w = webWins.get(String(id)); if (w) { try { w.destroy(); } catch (er) { /* סגור */ } webWins.delete(String(id)); } return true; });
 
 /* סיסמה (לא חובה): נשמרת מוצפנת בקובץ ההגדרות */
 const hash = (p, salt) => crypto.scryptSync(String(p), salt, 32).toString("hex");

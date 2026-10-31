@@ -41,7 +41,7 @@ setInterval(() => {
 const hist = []; let lastPgm = S.pgm, goingBack = false;
 S.on("scenes", () => { if (S.pgm !== lastPgm) { if (lastPgm && !goingBack && S.scene(lastPgm)) { hist.push(lastPgm); if (hist.length > 30) hist.shift(); } lastPgm = S.pgm; goingBack = false; } });
 U.nextScene = function () {
-  const list = S.scenes.filter(s => !s.brb), cur = S.scene(S.pgm); if (!list.length) return null;
+  const list = S.scenes.filter(s => !s.brb && !s.replay), cur = S.scene(S.pgm); if (!list.length) return null;
   if (cur && cur.next && S.scene(cur.next)) return S.scene(cur.next);
   const i = list.findIndex(s => s.id === S.pgm); return list[(i + 1) % list.length];
 };
@@ -49,7 +49,7 @@ function cycle(d) {
   if (d > 0) { const n = U.nextScene(); if (n) S.goLive(n.id); return; }
   while (hist.length && !S.scene(hist[hist.length - 1])) hist.pop();
   const id = hist.pop(); if (id && id !== S.pgm) { goingBack = true; S.goLive(id); return; }
-  const list = S.scenes.filter(s => !s.brb); if (!list.length) return; const i = list.findIndex(s => s.id === S.pgm); S.goLive(list[(Math.max(i, 0) - 1 + list.length) % list.length].id);
+  const list = S.scenes.filter(s => !s.brb && !s.replay); if (!list.length) return; const i = list.findIndex(s => s.id === S.pgm); S.goLive(list[(Math.max(i, 0) - 1 + list.length) % list.length].id);
 }
 U.act = function (c, a) {
   switch (c) {
@@ -61,12 +61,13 @@ U.act = function (c, a) {
     case "ov": { const o = S.overlays.find(x => x.id === a); if (o) { o.on = !o.on; S.save(); if (U.tab === "overlays") U.renderOverlays(); } break; }
     case "mute": S.settings.masterVol = S.settings.masterVol > 0 ? 0 : 1; S.applyAudioSettings(); S.save(); if (U.tab === "audio") U.renderMixer(); break;
     case "prog": { const m = { start: () => (run.on ? (run.paused ? S.showPause() : null) : S.showStart(0)), pause: () => S.showPause(), next: () => S.showNext(), prev: () => S.showPrev(), stop: () => S.showStop() }; if (m[a]) m[a](); break; }
+    case "replay": U.replayNow().catch(e => U.toast(e.message, true)); break;
     case "recpause": S.recPause(); break; case "recstop": S.recStop(); break;
   }
 };
 const ACTS = () => [["next", "סצנה הבאה"], ["prev", "סצנה קודמת"], ["take", "שידור (מהתצוגה המקדימה)"], ["cut", "חיתוך"], ["brb", "רגע, חוזרים"], ["mute", "השתקה כללית"],
-  ["prog:start", "תוכנית: התחלה / המשך"], ["prog:pause", "תוכנית: השהיה"], ["prog:next", "תוכנית: שלב הבא"], ["prog:prev", "תוכנית: שלב קודם"], ["recpause", "הקלטה: השהיה"]]
-  .concat(S.scenes.filter(s => !s.brb).map(s => ["scene:" + s.id, "סצנה: " + s.name])).concat(S.overlays.map(o => ["ov:" + o.id, "שכבה: " + o.name]));
+  ["prog:start", "תוכנית: התחלה / המשך"], ["prog:pause", "תוכנית: השהיה"], ["prog:next", "תוכנית: שלב הבא"], ["prog:prev", "תוכנית: שלב קודם"], ["recpause", "הקלטה: השהיה"], ["replay", "הפעלה חוזרת"]]
+  .concat(S.scenes.filter(s => !s.brb && !s.replay).map(s => ["scene:" + s.id, "סצנה: " + s.name])).concat(S.overlays.map(o => ["ov:" + o.id, "שכבה: " + o.name]));
 const actName = a => (ACTS().find(x => x[0] === a) || [0, a])[1];
 function runBind(action) { const [c, ...r] = action.split(":"); U.act(c, r.join(":")); }
 
@@ -84,7 +85,7 @@ document.addEventListener("keydown", e => {
     NumpadAdd: "next", NumpadSubtract: "prev", NumpadEnter: "take", NumpadMultiply: "cut", Numpad0: "brb", NumpadDivide: "prog:next" }[e.code];
   if (builtin) { e.preventDefault(); const [c, a] = builtin.split(":"); U.act(c, a); return; }
   const pad = /^Numpad([1-9])$/.exec(e.code);  // מקלדת מספרים: מקש = סצנה בשידור מיד
-  if (pad) { const sc = S.scenes.filter(s => !s.brb)[+pad[1] - 1]; if (sc) { e.preventDefault(); U.act("scene", sc.id); } }
+  if (pad) { const sc = S.scenes.filter(s => !s.brb && !s.replay)[+pad[1] - 1]; if (sc) { e.preventDefault(); U.act("scene", sc.id); } }
 }, true);
 /* עכבר: הכפתור הימני, האמצעי והצדדיים (הכפתור השמאלי נשאר לעבודה רגילה) */
 const mouseOk = e => e.button > 0 && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && !$("#dlg").open && !e.target.closest(".edit-layer .hd");
@@ -110,7 +111,7 @@ S.remote = { token: "", ok: false, regen: false };
 function pubState() {
   const steps = S.show.steps, st = steps[run.idx], d = st ? dur(st) : 0, nx = steps[run.idx + 1] || (S.show.loop ? steps[0] : null);
   const left = d > 0 ? Math.max(0, d - elapsed()) : null, rec = S.rec;
-  return { scenes: S.scenes.filter(s => !s.brb).map(s => ({ id: s.id, name: s.name })), pgm: S.pgm, pvw: S.pvw, pgmName: sceneName(S.pgm), brb: !!(S.scene(S.pgm) || {}).brb,
+  return { scenes: S.scenes.filter(s => !s.brb && !s.replay).map(s => ({ id: s.id, name: s.name })), pgm: S.pgm, pvw: S.pvw, pgmName: sceneName(S.pgm), brb: !!(S.scene(S.pgm) || {}).brb,
     overlays: S.overlays.map(o => ({ id: o.id, name: o.name, on: !!o.on })), mute: S.settings.masterVol === 0,
     rec: rec ? { on: true, pause: rec.state === "pause", sec: Math.floor(S.recElapsed(rec) / 1000), since: rec.state === "pause" ? null : Date.now() - S.recElapsed(rec) } : { on: false },
     prog: { n: steps.length, running: run.on, paused: run.paused, idx: run.idx, name: st ? sceneName(st.scene) : "", left: left == null ? null : Math.round(left), endAt: left != null && run.on && !run.paused ? Math.round((Date.now() + left * 1000) / 1000) * 1000 : null, next: nx ? sceneName(nx.scene) : "" } };
@@ -155,7 +156,7 @@ U.renderShow = function () {
     h("div", { class: "row" }, h("button", { class: "btn go", id: "pStart", onclick: () => (run.on ? S.showPause() : S.showStart(0)) }), h("button", { class: "btn", text: "⏮ הקודם", onclick: S.showPrev }), h("button", { class: "btn", text: "⏭ הבא", onclick: S.showNext }), h("button", { class: "btn danger", text: "⏹ עצירה", onclick: S.showStop })));
   const list = h("div", { id: "steps" }); sh.steps.forEach((st, i) => list.append(stepCard(st, i))); body.append(list,
     h("div", { class: "row" }, h("button", { class: "btn", text: "➕ שלב חדש", onclick: () => { const last = sh.steps[sh.steps.length - 1]; sh.steps.push({ id: S.uid(), scene: last ? last.scene : (S.scenes[0] || {}).id, min: 1, sec: 0, trans: "", ov: [], play: [] }); S.save(); U.renderShow(); } }),
-      h("button", { class: "btn", text: "✨ דוגמה מהסצנות שלי", onclick: () => { sh.steps = S.scenes.filter(s => !s.brb).slice(0, 5).map((s, i) => ({ id: S.uid(), scene: s.id, min: i === 0 ? 0 : 1, sec: i === 0 ? 30 : 0, trans: "", ov: [], play: [] })); S.save(); U.renderShow(); } })),
+      h("button", { class: "btn", text: "✨ דוגמה מהסצנות שלי", onclick: () => { sh.steps = S.scenes.filter(s => !s.brb && !s.replay).slice(0, 5).map((s, i) => ({ id: S.uid(), scene: s.id, min: i === 0 ? 0 : 1, sec: i === 0 ? 30 : 0, trans: "", ov: [], play: [] })); S.save(); U.renderShow(); } })),
     U.check("לחזור להתחלה אחרי השלב האחרון", sh.loop, v => { sh.loop = v; S.save(); }),
     U.field("התחלה אוטומטית בשעה (לא חובה)", h("div", { class: "row" }, h("input", { type: "time", value: sh.startAt, oninput: e => { sh.startAt = e.target.value; S.save(); } }),
       h("button", { class: "btn", id: "pArm", onclick: () => { if (!sh.startAt) { U.toast("בחרו שעה", true); return; } run.armed = !run.armed; U.toast(run.armed ? "התוכנית תתחיל בשעה " + sh.startAt + ". השאירו את הדף פתוח." : "ההפעלה האוטומטית בוטלה"); S.emit("show"); } })),
