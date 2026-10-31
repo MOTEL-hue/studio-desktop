@@ -22,6 +22,7 @@ async function begin() {
   const rec = live.rec = new MediaRecorder(S.outStream, { mimeType: mime(), videoBitsPerSecond: 8e6, audioBitsPerSecond: 160000 });
   live.chain = Promise.resolve();
   rec.ondataavailable = e => { if (e.data.size) live.chain = live.chain.then(() => e.data.arrayBuffer()).then(b => D().streamChunk(b)).catch(() => {}); };
+  if (c.alsoRec && !S.rec) S.recStart().catch(() => {});
   rec.start(250); live.on = true; live.since = Date.now(); live.wanted = true; refresh();
 }
 function end(manual) {
@@ -68,6 +69,7 @@ function refresh() {
   const b = $("#liveBtn"); if (b) { b.textContent = live.on ? "⏹ עצירת השידור" : "📡 התחלת שידור חי"; b.className = "btn " + (live.on ? "danger" : "go"); }
 }
 setInterval(refresh, 1000);
+setInterval(() => { const c = cfg(); if (live.armed && c.startAt && !live.on) { const [hh, mm] = c.startAt.split(":").map(Number), d = new Date(); if (d.getHours() === hh && d.getMinutes() === mm) { live.armed = false; U.toggleLive(); } } }, 5000);
 
 U.renderLive = function () {
   if (U.tab !== "live") return; const body = $("#tabBody"), c = cfg(); body.innerHTML = "";
@@ -84,6 +86,9 @@ U.renderLive = function () {
       U.field("מפתח שידור שני", h("input", { type: "password", value: c.key2, oninput: e => { c.key2 = e.target.value.trim(); S.save(); } }))) : null,
     U.field("איכות", U.sel(Object.entries(QUAL).map(([k, v]) => [k, v.n]), c.q, v => { c.q = v; S.save(); }), "איכות גבוהה צריכה חיבור העלאה חזק (בערך פי 1.5 מהמספר) ומחשב חזק יותר."),
     U.field("מקודד", h("select", { id: "liveEnc", onchange: e => { c.enc = e.target.value; S.save(); } }, h("option", { value: "auto", text: "אוטומטי (כרטיס מסך אם יש)" })), "כרטיס מסך (NVIDIA, Intel, AMD) מקודד בלי לעמיס על המעבד."),
+    U.check("להקליט לקובץ גם בזמן השידור", c.alsoRec, v => { c.alsoRec = v; S.save(); }),
+    U.field("התחלת שידור אוטומטית בשעה (לא חובה)", h("div", { class: "row" }, h("input", { type: "time", value: c.startAt || "", oninput: e => { c.startAt = e.target.value; S.save(); } }),
+      h("button", { class: "btn", id: "liveArm", text: live.armed ? "⏰ מופעל (לחצו לביטול)" : "⏰ הפעלה בשעה", onclick: () => { if (!c.startAt) { U.toast("בחרו שעה", true); return; } live.armed = !live.armed; U.renderLive(); } })), "השידור יתחיל לבד בשעה שבחרתם. התוכנה צריכה להישאר פתוחה."),
     h("div", { class: "row" }, h("button", { class: "btn go", id: "liveBtn", onclick: () => U.toggleLive() })), h("div", { id: "liveStatus", class: "livestat" }),
     h("h3", { text: "📺 הצגה ברשת המקומית (במקום NDI)" }),
     h("p", { class: "hint", text: "משדר את הסצנה החיה לכל מחשב או טלפון באותה רשת (WiFi או כבל), בלי אינטרנט. פותחים את הכתובת בדפדפן, או ב-OBS כמקור \"דפדפן\", כדי לראות את התמונה." }),

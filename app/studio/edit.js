@@ -101,8 +101,9 @@ U.attachLayer = function () {
     layer.addEventListener("dragleave", () => { U.drawSel(); });
   }
   const fig = document.querySelector(S.settings.studio ? ".mon.pvw .cvwrap" : ".mon.pgm .cvwrap"); if (fig && layer.parentNode !== fig) fig.append(layer);
-  U.drawSel();
+  U.drawSel(); if (U.applyGuides) U.applyGuides();
 };
+U.applyGuides = () => { if (layer) layer.classList.toggle("guides", !!S.settings.guides); };
 S.on("scenes", () => U.attachLayer());
 document.addEventListener("keydown", e => { if (e.key === "Escape" && sel >= 0 && !document.getElementById("dlg").open) { sel = -1; U.drawSel(); } });
 })();

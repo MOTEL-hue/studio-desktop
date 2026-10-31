@@ -60,6 +60,10 @@ function drawSrc(ctx, src, x, y, w, h, slot, k) {
   ctx.save();
   if (src && src.kind === "color") { ctx.fillStyle = src.props.color || "#000"; ctx.fillRect(x, y, w, h); ctx.restore(); return; }
   let v = visual(src);
+  if (slot && v && slot.freeze) {  // עצירת תמונה: מצלמים פריים אחד ומציגים אותו
+    if (!(slot._fz instanceof HTMLCanvasElement)) { const [fw, fh] = dims(v), c = document.createElement("canvas"); c.width = fw; c.height = fh; c.getContext("2d").drawImage(v, 0, 0); Object.defineProperty(slot, "_fz", { value: c, writable: true, enumerable: false, configurable: true }); }
+    v = slot._fz;
+  } else if (slot && slot._fz) slot._fz = null;
   if (v && slot && slot.chroma && slot.chroma.on) v = S.chromaFrame(v, slot.chroma) || v;  // מסך ירוק
   if (!v) {
     ctx.fillStyle = "#111827"; ctx.fillRect(x, y, w, h);
@@ -127,12 +131,14 @@ S.renderScene = function (ctx, scene, W, H) {
   const bg = o.bgSrc && S.src(o.bgSrc); if (bg) drawSrc(ctx, bg, 0, 0, W, H, null, k);
   if (S.drawFx && o.fxKind && o.fxKind !== "none" && !o.fxOver) S.drawFx(ctx, o, W, H);
   S.rectsOf(scene, W, H).forEach(({ i, x, y, w, h, r, main, free, pipSmall }) => {
-    const slot = scene.slots[i];
+    const slot = scene.slots[i]; ctx.save();
+    if (slot.rot) { ctx.translate(x + w / 2, y + h / 2); ctx.rotate(slot.rot * Math.PI / 180); ctx.translate(-(x + w / 2), -(y + h / 2)); }
+    if (slot.shape === "circle") r = Math.min(w, h) / 2;
     if (!main && (o.shadow || pipSmall || free)) {
       ctx.save(); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 28 * k; ctx.shadowOffsetY = 6 * k;
       ctx.fillStyle = "#000"; rr(ctx, x, y, w, h, r); ctx.fill(); ctx.restore();
     }
-    ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip();
+    ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip(); if (slot.opacity != null && slot.opacity < 1) ctx.globalAlpha = slot.opacity;
     drawSrc(ctx, S.src(slot.src), x, y, w, h, slot, k); ctx.restore();
     if (o.borderW > 0 && !main) S.strokeBorder(ctx, o, x, y, w, h, r, k);
     if (slot.label) {
@@ -141,6 +147,7 @@ S.renderScene = function (ctx, scene, W, H) {
       ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, x + w - tw - 14 * k, y + h - th - 14 * k, tw, th, 10 * k); ctx.fill();
       ctx.fillStyle = "#fff"; ctx.fillText(slot.label, x + w - 32 * k, y + h - 24 * k); ctx.restore();
     }
+    ctx.restore();
   });
   if (S.drawFx && o.fxKind && o.fxKind !== "none" && o.fxOver) S.drawFx(ctx, o, W, H);
 };
@@ -185,7 +192,7 @@ S.rectsOf = function (sc, W, H) {
 };
 
 /* ---------- שכבות (לוגו, כתוביות, מסרגל...) ---------- */
-S.OVERLAY_TYPES = { logo: "לוגו", lower: "כתובית שם", ticker: "שורה רצה", clock: "שעון", countdown: "ספירה לאחור", text: "טקסט חופשי", frame: "מסגרת" };
+S.OVERLAY_TYPES = { logo: "לוגו", lower: "כתובית שם", ticker: "שורה רצה", clock: "שעון", countdown: "ספירה לאחור", text: "טקסט חופשי", frame: "מסגרת", stopwatch: "שעון עצר", score: "לוח תוצאות" };
 S.newOverlay = function (type) {
   const base = { id: S.uid(), type, name: S.OVERLAY_TYPES[type], on: false, _a: 0, p: {} };
   const P = {
@@ -196,6 +203,8 @@ S.newOverlay = function (type) {
     countdown: { pos: "tc", mode: "duration", minutes: 5, time: "20:00", label: "מתחילים בעוד", endText: "מתחילים!", color: "#ffffff", bg: "#00000099", size: 100, endAt: 0 },
     text: { text: "טקסט", pos: "bc", color: "#ffffff", bg: "#00000099", size: 100 },
     frame: { color: "#E8B931", w: 10 },
+    stopwatch: { pos: "tl", size: 100, color: "#ffffff", bg: "#000000aa", base: 0, startAt: 0, running: false },
+    score: { pos: "tc", size: 100, color: "#ffffff", bg: "#16233Fdd", accent: "#E8B931", a: "קבוצה א", b: "קבוצה ב", sa: 0, sb: 0 },
   };
   base.p = P[type]; return base;
 };
@@ -267,6 +276,18 @@ function drawOverlay(ctx, o, W, H, now) {
     const s = k * p.size / 100; ctx.font = "700 " + 54 * s + "px " + FONT; const w = ctx.measureText(p.text).width + 60 * s, h = 90 * s;
     const [x, y] = place(pos2(p.pos), w, h, W, H, 40 * k); ctx.fillStyle = p.bg; rr(ctx, x, y, w, h, 14 * s); ctx.fill();
     ctx.fillStyle = p.color; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(p.text, x + w / 2, y + h / 2 + 3 * s);
+  } else if (o.type === "stopwatch") {
+    const s = k * p.size / 100, ms = (p.running ? p.base + (Date.now() - p.startAt) : p.base), t = Math.floor(ms / 1000), hh = Math.floor(t / 3600);
+    const txt = (hh ? hh + ":" : "") + String(Math.floor(t % 3600 / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0");
+    ctx.font = "800 " + 96 * s + "px " + FONT; const w = ctx.measureText(txt).width + 70 * s, h = 130 * s, [x, y] = place(pos2(p.pos), w, h, W, H, 40 * k);
+    ctx.fillStyle = p.bg; rr(ctx, x, y, w, h, 16 * s); ctx.fill(); ctx.fillStyle = p.color; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.direction = "ltr"; ctx.fillText(txt, x + w / 2, y + h / 2 + 4 * s);
+  } else if (o.type === "score") {
+    const s = k * p.size / 100; ctx.font = "800 " + 44 * s + "px " + FONT; const wa = ctx.measureText(p.a).width, wb = ctx.measureText(p.b).width; ctx.font = "800 " + 76 * s + "px " + FONT;
+    const ws = Math.max(ctx.measureText(String(p.sa)).width, ctx.measureText(String(p.sb)).width, 56 * s), w = wa + wb + ws * 2 + 190 * s, h = 120 * s, [x, y] = place(pos2(p.pos), w, h, W, H, 40 * k);
+    ctx.fillStyle = p.bg; rr(ctx, x, y, w, h, 16 * s); ctx.fill(); ctx.fillStyle = p.accent; ctx.fillRect(x + w / 2 - 3 * s, y + 18 * s, 6 * s, h - 36 * s);
+    ctx.textBaseline = "middle"; ctx.fillStyle = p.color; ctx.direction = "rtl";
+    ctx.font = "700 " + 44 * s + "px " + FONT; ctx.textAlign = "right"; ctx.fillText(p.a, x + w - 34 * s, y + h / 2 + 3 * s); ctx.textAlign = "left"; ctx.fillText(p.b, x + 34 * s, y + h / 2 + 3 * s);
+    ctx.font = "800 " + 76 * s + "px " + FONT; ctx.textAlign = "center"; ctx.fillStyle = p.accent; ctx.fillText(String(p.sa), x + w - 34 * s - wa - 30 * s - ws / 2, y + h / 2 + 4 * s); ctx.fillText(String(p.sb), x + 34 * s + wb + 30 * s + ws / 2, y + h / 2 + 4 * s);
   } else if (o.type === "frame") {
     ctx.strokeStyle = p.color; ctx.lineWidth = p.w * k * 2; ctx.strokeRect(0, 0, W, H);
   }

@@ -106,3 +106,7 @@ body.remote{padding:12px;max-width:640px;margin:0 auto;-webkit-tap-highlight-col
 .nextbtn{background:var(--go);border-color:var(--go);color:#fff;font-weight:800;padding:12px 8px}
 .livestat{margin:10px 0;padding:10px 12px;border-radius:8px;background:var(--p2);border:1px solid var(--ln);line-height:1.5}.livestat.ok{border-color:var(--go)}.livestat.bad{border-color:var(--red)}
 small.auto{display:block;color:var(--dim);font-size:12px;line-height:1.4;margin-top:2px}.kind small.auto{font-size:11px;font-weight:400;text-align:center}
+/* מבט על וקווי עזר */
+.mv{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}.mvt{background:var(--p2);border:1px solid var(--ln);border-radius:8px;padding:6px}.mvt .oh{margin-top:4px}.mvt .oh b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edit-layer.guides::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(90deg,transparent calc(33.333% - .5px),#fff7 calc(33.333% - .5px),#fff7 calc(33.333% + .5px),transparent calc(33.333% + .5px),transparent calc(66.666% - .5px),#fff7 calc(66.666% - .5px),#fff7 calc(66.666% + .5px),transparent calc(66.666% + .5px)),linear-gradient(180deg,transparent calc(33.333% - .5px),#fff7 calc(33.333% - .5px),#fff7 calc(33.333% + .5px),transparent calc(33.333% + .5px),transparent calc(66.666% - .5px),#fff7 calc(66.666% - .5px),#fff7 calc(66.666% + .5px),transparent calc(66.666% + .5px))}
+.edit-layer.guides::after{content:"";position:absolute;inset:5%;border:1px dashed #ffffffaa;pointer-events:none}

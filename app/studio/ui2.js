@@ -2,14 +2,14 @@
 (function () {
 "use strict";
 const S = window.Studio, U = S.ui, h = U.h, $ = U.$;
-const TABS = [["audio", "🎚️ שמע"], ...(window.studioDesktop && window.studioDesktop.hasStream ? [["live", "📡 שידור חי"]] : []), ["overlays", "🏷️ שכבות"], ["show", "📋 תוכנית"], ["remote", "🎮 שלט"], ["rec", "⏺ הקלטה"], ["settings", "⚙️ הגדרות"], ["help", "❓ עזרה"]];
+const TABS = [["audio", "🎚️ שמע"], ["multi", "👁️ מבט על"], ...(window.studioDesktop && window.studioDesktop.hasStream ? [["live", "📡 שידור חי"]] : []), ["overlays", "🏷️ שכבות"], ["show", "📋 תוכנית"], ["remote", "🎮 שלט"], ["rec", "⏺ הקלטה"], ["settings", "⚙️ הגדרות"], ["help", "❓ עזרה"]];
 U.tab = "audio";
 
 U.renderTabs = function () {
   const nav = $("#tabs"); nav.innerHTML = "";
   TABS.forEach(([id, l]) => nav.append(h("button", { class: "tab" + (U.tab === id ? " on" : ""), text: l, onclick: () => { U.tab = id; U.renderTabs(); } })));
   const body = $("#tabBody"); body.innerHTML = "";
-  ({ audio: U.renderMixer, overlays: U.renderOverlays, show: U.renderShow, remote: U.renderRemote, live: U.renderLive, rec: U.renderRec, settings: U.renderSettings, help: U.renderHelp })[U.tab]();
+  ({ audio: U.renderMixer, overlays: U.renderOverlays, show: U.renderShow, remote: U.renderRemote, live: U.renderLive, multi: U.renderMulti, rec: U.renderRec, settings: U.renderSettings, help: U.renderHelp })[U.tab]();
 };
 
 /* ---------- מיקסר שמע ---------- */
@@ -93,6 +93,13 @@ function oFields(o) {
       p.mode === "duration" ? h("div", { class: "row" }, h("button", { class: "btn go", text: "▶ התחלת ספירה", onclick: () => { p.endAt = Date.now() + p.minutes * 60000; o.on = true; U.renderOverlays(); } }), h("button", { class: "btn", text: "↺ איפוס", onclick: () => { p.endAt = 0; } })) : null,
       pos("tc"), size(), oBg("צבע הרקע", p, "bg"), oColor("צבע הכתב", p, "color")].flat();
     case "text": return [t("הטקסט", "text", ""), pos("bc"), size(), oBg("צבע הרקע", p, "bg"), oColor("צבע הכתב", p, "color")].flat();
+    case "stopwatch": return [h("div", { class: "row" }, h("button", { class: "btn go", text: "▶ התחלה", title: "מתחיל או ממשיך לספור למעלה", onclick: () => { if (!p.running) { p.startAt = Date.now(); p.running = true; } } }),
+      h("button", { class: "btn", text: "⏸ עצירה", title: "עוצר את השעון ומשאיר את הזמן", onclick: () => { if (p.running) { p.base += Date.now() - p.startAt; p.running = false; } } }),
+      h("button", { class: "btn", text: "↺ איפוס", title: "מחזיר את השעון ל-00:00", onclick: () => { p.base = 0; p.running = false; } })), pos("tl"), size(), oBg("צבע הרקע", p, "bg"), oColor("צבע הכתב", p, "color")].flat();
+    case "score": return [t("שם קבוצה א", "a", ""), t("שם קבוצה ב", "b", ""),
+      h("div", { class: "row" }, h("button", { class: "btn go", text: "א +1", onclick: () => { p.sa++; sv(); } }), h("button", { class: "btn", text: "א -1", onclick: () => { p.sa = Math.max(0, p.sa - 1); sv(); } }),
+        h("button", { class: "btn go", text: "ב +1", onclick: () => { p.sb++; sv(); } }), h("button", { class: "btn", text: "ב -1", onclick: () => { p.sb = Math.max(0, p.sb - 1); sv(); } }), h("button", { class: "btn", text: "↺ איפוס", onclick: () => { p.sa = p.sb = 0; sv(); } })),
+      pos("tc"), size(), oBg("צבע הרקע", p, "bg"), oColor("צבע הכתב", p, "color"), oColor("צבע המספרים", p, "accent")].flat();
     case "frame": return [oColor("צבע", p, "color"), U.field("עובי", U.range(2, 60, 1, p.w, v => { p.w = v; sv(); }))];
   }
 }
@@ -159,6 +166,7 @@ U.renderSettings = function () {
     U.field("קצב תמונות", U.sel([[24, "24"], [30, "30 (מומלץ)"], [60, "60 (לתנועה חלקה, כבד)"]], st.fps, v => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); U.renderSettings(); return; } S.setFps(+v); S.save(); })),
     h("div", { class: "row" }, h("button", { class: "btn go", text: "⚡ מצב מהירות (720p, 60 תמונות)", title: "הכי פחות השהיה, ופחות עומס על המחשב", onclick: () => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); return; } S.setSize(1280, 720); S.setFps(60); S.save(); U.renderSettings(); U.toast("מצב מהירות הופעל"); } }),
       h("button", { class: "btn", text: "🎞️ מצב איכות (1080p, 30 תמונות)", onclick: () => { if (S.rec) { U.toast("אי אפשר לשנות באמצע הקלטה", true); return; } S.setSize(1920, 1080); S.setFps(30); S.save(); U.renderSettings(); U.toast("מצב איכות הופעל"); } })),
+    U.check("קווי עזר בתצוגה המקדימה", st.guides, v => { st.guides = v; S.save(); if (U.applyGuides) U.applyGuides(); }, "מציג קווי שלישים וגבול בטוח (5%) מעל התצוגה המקדימה בלבד, כדי ליישר כתוביות ואנשים. הקווים לא נכנסים לשידור."),
     U.check("מצב אולפן (תצוגה מקדימה לפני שידור)", st.studio, v => { st.studio = v; if (!v) S.pvw = S.pgm; S.emit("scenes"); S.save(); }, "מדליקים: בוחרים סצנה, רואים אותה בצד, ולוחצים \"שידור\". מכבים: לחיצה על סצנה משדרת אותה מיד."),
     h("h3", { text: "מערכי סצנות שמורים" }), h("p", { class: "hint", text: "שומרים את כל הסצנות, השכבות והתוכנית בשם (למשל \"שיעור\" או \"אירוע\"), וטוענים אחר כך בלחיצה. המקורות (מצלמות וקבצים) לא נשמרים בתוכם." }), h("div", { id: "profBox" }),
     h("h3", { text: "גיבוי ההגדרות" }), h("p", { class: "hint", text: "שומרים את הסצנות, השכבות וההגדרות לקובץ, ואפשר לטעון אותו במחשב אחר. המקורות (מצלמות וקבצים) יש לחבר מחדש." }),
@@ -186,6 +194,21 @@ U.replayNow = async function () {
   let sc = S.scenes.find(x => x.replay); if (!sc) { sc = S.newScene("הפעלה חוזרת", "full"); sc.replay = true; sc.opts.bg1 = sc.opts.bg2 = "#000000"; S.scenes.push(sc); }
   sc.slots[0].src = src.id; sc.slots[0].fit = "contain"; S.emit("scenes"); S.save(); S.goLive(sc.id); U.toast("הפעלה חוזרת: " + (st.replaySec || 10) + " שניות");
 };
+/* מבט על: כל המקורות החיים במקום אחד, כמו בתוכנות שידור מקצועיות. לחיצה מציבה מקור בחלון שנבחר */
+U.renderMulti = function () {
+  if (U.tab !== "multi") return; const body = $("#tabBody"); body.innerHTML = "";
+  body.append(h("p", { class: "hint", text: "כל המקורות שלכם בבת אחת, חיים. לחצו \"הצבה בחלון\" כדי להציב מקור בחלון שבחרתם בתצוגה המקדימה (או בחלון הריק הראשון)." }));
+  const vs = S.sources.filter(s => U.visualKinds.includes(s.kind) && !s.missing);
+  if (!vs.length) body.append(h("p", { class: "empty", text: "עוד אין מקורות עם תמונה. הוסיפו מצלמה, מסך או קובץ." }));
+  const grid = h("div", { class: "mv" });
+  vs.forEach(s => { const cv = h("canvas", { width: 320, height: 180, class: "cv" }); s._mv = cv;
+    grid.append(h("div", { class: "mvt" }, cv, h("div", { class: "oh" }, h("b", { text: s.name }), h("button", { class: "btn", text: "הצבה בחלון", title: "מציב את המקור בחלון שנבחר בתצוגה המקדימה, או בחלון הריק הראשון", onclick: () => {
+      const sc = S.scene(U.editId()); if (!sc) return; let i = U.selectedWindow ? U.selectedWindow() : -1; const n = S.slotCount(sc);
+      if (i < 0 || i >= n) { i = 0; for (let q = 0; q < n; q++) if (!sc.slots[q].src) { i = q; break; } }
+      sc.slots[i].src = s.id; S.save(); S.emit("scenes"); U.toast("הוצב בחלון " + (i + 1) + ": " + s.name); } })))); });
+  body.append(grid);
+};
+setInterval(() => { if (U.tab !== "multi") return; S.sources.forEach(s => { if (s._mv && s._mv.isConnected) { const c = s._mv.getContext("2d"), sc = S.newScene(); sc.slots[0].src = s.id; sc.slots[0].fit = "contain"; c.fillStyle = "#000"; c.fillRect(0, 0, 320, 180); S.renderScene(c, sc, 320, 180); } }); }, 160);
 async function restoreAll(d) { S.sources.slice().forEach(s => S.disposeSource(s)); const f = await S.restore(d); S.setSize(S.settings.w, S.settings.h); S.start(); U.renderTabs(); U.renderTrans(); if (f.length) U.toast("חלק מההתקנים לא התחברו: " + f.join(" | "), true); }
 
 /* ---------- עזרה ---------- */

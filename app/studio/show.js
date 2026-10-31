@@ -61,12 +61,13 @@ U.act = function (c, a) {
     case "ov": { const o = S.overlays.find(x => x.id === a); if (o) { o.on = !o.on; S.save(); if (U.tab === "overlays") U.renderOverlays(); } break; }
     case "mute": S.settings.masterVol = S.settings.masterVol > 0 ? 0 : 1; S.applyAudioSettings(); S.save(); if (U.tab === "audio") U.renderMixer(); break;
     case "prog": { const m = { start: () => (run.on ? (run.paused ? S.showPause() : null) : S.showStart(0)), pause: () => S.showPause(), next: () => S.showNext(), prev: () => S.showPrev(), stop: () => S.showStop() }; if (m[a]) m[a](); break; }
+    case "shot": S.pgmCanvas.toBlob(b => { if (!b) return; const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "צילום_" + new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-") + ".png"; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000); U.toast("הצילום נשמר"); }, "image/png"); break;
     case "replay": U.replayNow().catch(e => U.toast(e.message, true)); break;
     case "recpause": S.recPause(); break; case "recstop": S.recStop(); break;
   }
 };
 const ACTS = () => [["next", "סצנה הבאה"], ["prev", "סצנה קודמת"], ["take", "שידור (מהתצוגה המקדימה)"], ["cut", "חיתוך"], ["brb", "רגע, חוזרים"], ["mute", "השתקה כללית"],
-  ["prog:start", "תוכנית: התחלה / המשך"], ["prog:pause", "תוכנית: השהיה"], ["prog:next", "תוכנית: שלב הבא"], ["prog:prev", "תוכנית: שלב קודם"], ["recpause", "הקלטה: השהיה"], ["replay", "הפעלה חוזרת"]]
+  ["prog:start", "תוכנית: התחלה / המשך"], ["prog:pause", "תוכנית: השהיה"], ["prog:next", "תוכנית: שלב הבא"], ["prog:prev", "תוכנית: שלב קודם"], ["recpause", "הקלטה: השהיה"], ["replay", "הפעלה חוזרת"], ["shot", "צילום מסך של השידור"]]
   .concat(S.scenes.filter(s => !s.brb && !s.replay).map(s => ["scene:" + s.id, "סצנה: " + s.name])).concat(S.overlays.map(o => ["ov:" + o.id, "שכבה: " + o.name]));
 const actName = a => (ACTS().find(x => x[0] === a) || [0, a])[1];
 function runBind(action) { const [c, ...r] = action.split(":"); U.act(c, r.join(":")); }

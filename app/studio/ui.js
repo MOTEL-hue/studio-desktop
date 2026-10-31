@@ -55,6 +55,7 @@ function build() {
       h("button", { class: "btn", id: "btnOut", text: "🖥️ חלון הצגה (מסך שני)", title: "פותח חלון נפרד שמציג את השידור במסך המלא, למשל במקרן או במסך השני", onclick: U.openOutput }),
       h("button", { class: "btn rec", id: "btnRec", text: "⏺ הקלטה", onclick: U.toggleRec }),
       h("button", { class: "btn", id: "btnMon", title: "שמיעת השידור במחשב הזה. שימו אוזניות, אחרת תהיה יבבה", onclick: U.toggleMon }),
+      h("button", { class: "btn", id: "btnShot", text: "📸 צילום", title: "שומר תמונה של מה שמופיע בשידור עכשיו (מקש P)", onclick: () => U.act("shot") }),
       h("button", { class: "btn", id: "btnReplay", text: "⏪ הפעלה חוזרת", title: "מציג שוב את 10 השניות האחרונות (מקש Y). המאגר מופעל בלשונית הקלטה", hidden: true, onclick: () => U.act("replay") }),
       h("button", { class: "btn", id: "btnBrb", text: "⏸ רגע, חוזרים", title: "מעבר מיידי למסך המתנה, ולחיצה נוספת חוזרת (מקש B)", onclick: () => U.brb() }),
       h("button", { class: "btn", id: "btnA11y", text: "♿ נגישות", title: "גודל כתב, ניגודיות והפחתת תנועה", onclick: () => U.a11yDlg() }),
@@ -255,6 +256,10 @@ function effectsPanel(sl, ch) {
   const rng = (label, k, min, max, step, unit) => U.field(label, U.range(min, max, step, cc[k], v => { cc[k] = v; ch(); }, v => v + (unit || "")));
   const eye = window.EyeDropper ? h("button", { class: "btn", text: "🎯 בחירת צבע מהמסך", title: "לוחצים על הרקע הירוק בתמונה", onclick: async () => { try { const r = await new window.EyeDropper().open(); cr.color = r.sRGBHex; cr.on = true; ch(); U.renderEditor(); } catch (e) { /* בוטל */ } } }) : null;
   return h("details", { class: "slot" }, h("summary", { text: "צבע ואפקטים (מסך ירוק, תיקון צבע)" }),
+    U.field("שקיפות החלון", U.range(.1, 1, .05, sl.opacity == null ? 1 : sl.opacity, v => { sl.opacity = v; ch(); }, v => Math.round(v * 100) + "%")),
+    U.field("סיבוב החלון", U.range(-180, 180, 1, sl.rot || 0, v => { sl.rot = v; ch(); }, v => v + "°")),
+    U.field("צורת החלון", U.sel([["", "לפי העיצוב (מלבן או פינות עגולות)"], ["circle", "עגול"]], sl.shape || "", v => { sl.shape = v; ch(); })),
+    U.check("עצירת תמונה (קיפאון)", sl.freeze, v => { sl.freeze = v; ch(); }),
     U.check("מסך ירוק: הסרת הרקע", cr.on, v => { cr.on = v; ch(); }, "מסיר צבע אחד מהתמונה (בדרך כלל ירוק או כחול) כדי שהאדם יופיע על הרקע של הסצנה."),
     h("div", { class: "row" }, U.color(cr.color, v => { cr.color = v; ch(); }), eye),
     U.field("עוצמת ההסרה", U.range(.02, .6, .01, cr.sim, v => { cr.sim = v; ch(); }), "כמה גוונים קרובים לצבע ייעלמו. מעלים אם נשאר ירוק, מורידים אם האדם מתחיל להיעלם."),
@@ -329,6 +334,7 @@ document.addEventListener("keydown", e => {
   else if (e.code === "KeyB") U.brb();
   else if (e.code === "KeyN") U.act("next");
   else if (e.code === "KeyY") U.act("replay");
+  else if (e.code === "KeyP") U.act("shot");
   else if (e.code === "KeyM") { S.settings.masterVol = S.settings.masterVol > 0 ? 0 : 1; S.applyAudioSettings(); if (U.renderMixer) U.renderMixer(); }
 });
 

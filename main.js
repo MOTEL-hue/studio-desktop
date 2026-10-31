@@ -13,6 +13,10 @@ const { spawn, execFile } = require("child_process");
 const CHROME_UA = app.userAgentFallback.replace(/\s*Electron\/\S+/i, "").replace(/\s*Studio\/\S+/i, "").replace(/\s*studio-desktop\/\S+/i, "");
 app.userAgentFallback = CHROME_UA;
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+/* ביצועים: ציור וקידוד בכרטיס המסך גם כשהוא ברשימה האפורה של Chromium */
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
