@@ -41,6 +41,22 @@ if (S.hasLive()) D().onStreamStatus(st => {
   else if (st.state === "live") live.retries = 0;
   refresh();
 });
+/* הצגה ברשת המקומית: תמונות JPEG מהסצנה החיה נשלחות לשרת קטן שבתוכנה, והוא מגיש אותן לכל מי שבאותה רשת */
+const lan = S.lan = { on: false, timer: 0, busy: false, urls: [] };
+const lc = document.createElement("canvas");
+U.toggleLan = async function () {
+  const c = cfg();
+  if (lan.on) { clearInterval(lan.timer); lan.on = false; await D().lanStop(); U.renderLive(); return; }
+  const r = await D().lanStart({ port: 8765, code: c.lanCode || "" }); if (r.error) { U.toast(r.error, true); return; }
+  lan.on = true; lan.urls = r.ips.map(ip => "http://" + ip + ":" + r.port + "/" + (c.lanCode ? "?k=" + encodeURIComponent(c.lanCode) : ""));
+  const q = +(c.lanQ || 720), fps = c.lanFps || 15;
+  lan.timer = setInterval(() => {
+    if (lan.busy) return; const src = S.pgmCanvas, h2 = Math.min(q, src.height), w2 = Math.round(src.width * h2 / src.height); lc.width = w2; lc.height = h2; lc.getContext("2d").drawImage(src, 0, 0, w2, h2);
+    lan.busy = true; lc.toBlob(b => { if (!b) { lan.busy = false; return; } b.arrayBuffer().then(buf => { D().lanFrame(buf); lan.busy = false; }); }, "image/jpeg", .72);
+  }, 1000 / fps);
+  U.renderLive();
+};
+function lanRefresh() { const i = $("#lanInfo"); if (i) { i.textContent = lan.on ? "✅ פעיל. פתחו באחד מהמכשירים ברשת: " + (lan.urls.join("  |  ") || "(לא נמצאה כתובת רשת)") : "כבוי. בהפעלה הראשונה Windows עשוי לשאול על חומת האש: יש לאשר \"רשת פרטית\"."; i.className = "livestat " + (lan.on ? "ok" : ""); } }
 function elapsed() { return live.on ? U.fmtT(Date.now() - live.since) : ""; }
 function refresh() {
   const c = $("#chipLive"), st = live.status || {};
@@ -69,10 +85,16 @@ U.renderLive = function () {
     U.field("איכות", U.sel(Object.entries(QUAL).map(([k, v]) => [k, v.n]), c.q, v => { c.q = v; S.save(); }), "איכות גבוהה צריכה חיבור העלאה חזק (בערך פי 1.5 מהמספר) ומחשב חזק יותר."),
     U.field("מקודד", h("select", { id: "liveEnc", onchange: e => { c.enc = e.target.value; S.save(); } }, h("option", { value: "auto", text: "אוטומטי (כרטיס מסך אם יש)" })), "כרטיס מסך (NVIDIA, Intel, AMD) מקודד בלי לעמיס על המעבד."),
     h("div", { class: "row" }, h("button", { class: "btn go", id: "liveBtn", onclick: () => U.toggleLive() })), h("div", { id: "liveStatus", class: "livestat" }),
+    h("h3", { text: "📺 הצגה ברשת המקומית (במקום NDI)" }),
+    h("p", { class: "hint", text: "משדר את הסצנה החיה לכל מחשב או טלפון באותה רשת (WiFi או כבל), בלי אינטרנט. פותחים את הכתובת בדפדפן, או ב-OBS כמקור \"דפדפן\", כדי לראות את התמונה." }),
+    U.field("קוד גישה (לא חובה)", U.text(c.lanCode || "", v => { c.lanCode = v.trim(); S.save(); }, "למשל 1234"), "מי שמכניס כתובת בלי הקוד לא יראה את התמונה."),
+    U.field("איכות התמונה", U.sel([["480", "480p (קל לרשת)"], ["720", "720p (מומלץ)"], ["1080", "1080p (דורש רשת חזקה)"]], c.lanQ || "720", v => { c.lanQ = v; S.save(); })),
+    U.field("קצב תמונות", U.sel([[10, "10 בשנייה"], [15, "15 בשנייה (מומלץ)"], [24, "24 בשנייה"]], c.lanFps || 15, v => { c.lanFps = +v; S.save(); })),
+    h("div", { class: "row" }, h("button", { class: "btn " + (lan.on ? "danger" : "go"), id: "lanBtn", text: lan.on ? "⏹ עצירת ההצגה ברשת" : "📺 התחלת הצגה ברשת", onclick: () => U.toggleLan() })), h("div", { id: "lanInfo", class: "livestat" }),
     h("details", { class: "help guide" }, h("summary", { text: "איפה מוצאים את המפתח?" }),
       h("p", { text: "יוטיוב: studio.youtube.com ← צור ← שידור חי ← בחרו \"סטרימינג\" והעתיקו את \"מפתח שידור\"." }), h("p", { text: "פייסבוק: צור ← וידאו חי ← \"שימוש במפתח שידור\"." }), h("p", { text: "טוויץ': לוח הבקרה של היוצר ← הגדרות ← שידור." }),
       h("div", { class: "tip", text: "אחרי שהתחלתם לשדר, בעמוד של הפלטפורמה לוחצים \"התחל שידור\" כדי שהצופים יראו. ההשהיה בדרך כלל כמה שניות." })));
-  refresh();
+  refresh(); lanRefresh();
   D().streamEncoders().then(list => { const sel = $("#liveEnc"); if (!sel) return; const names = { x264: "מעבד (x264)", nvenc: "NVIDIA", qsv: "Intel", amf: "AMD" };
     list.forEach(k => sel.append(h("option", { value: k, text: names[k] || k, selected: c.enc === k }))); }).catch(() => {});
 };

@@ -51,6 +51,9 @@ U.meterLoop = function () {
 function strip(s) {
   const a = s.audio, ap = () => { S.applyStrip(s); S.save(); };
   const adv = h("details", { class: "slot" }, h("summary", { text: "הגדרות מתקדמות" }),
+    U.field("הגדרה מוכנה לקול", U.sel([["", "בחרו..."], ["speech", "דיבור ברור (מיקרופון)"], ["radio", "קול רדיו עמוק"], ["sing", "שירה"], ["music", "מוזיקה (בלי עיבוד)"]], "", v => {
+      const P = { speech: { lowcut: true, lo: -2, mid: 3, hi: 2, comp: true, gate: -50 }, radio: { lowcut: true, lo: 3, mid: 4, hi: 3, comp: true, gate: -48 }, sing: { lowcut: true, lo: 0, mid: 1, hi: 3, comp: true, gate: -70 }, music: { lowcut: false, lo: 0, mid: 0, hi: 0, comp: false, gate: -70 } }[v];
+      if (P) { Object.assign(a, P); ap(); U.renderMixer(); U.toast("הוחלה הגדרה מוכנה"); } }), "מכוונת בבת אחת את הבס, הגבוהים, המדחס ושער הרעש. מחליפה את התוספים (VST) שיש בתוכנות אחרות."),
     U.field("איזון שמאל / ימין", U.range(-1, 1, .05, a.pan, v => { a.pan = v; ap(); }, v => (v === 0 ? "מרכז" : v < 0 ? "שמאל" : "ימין")), "רלוונטי לשמע סטריאו, למשל מוזיקה."),
     U.field("חיזוק או החלשה בכניסה (דציבל)", U.range(-20, 20, 1, a.trim, v => { a.trim = v; ap(); }, v => v + " dB"), "מתאים כשהמקור חלש או חזק מאוד לפני שמזיזים את המחוון."),
     U.check("חיתוך בסים נמוך", a.lowcut, v => { a.lowcut = v; ap(); }, "מסנן רעמים, רעידות ורעש מאוורר. מומלץ למיקרופון."),

@@ -5,6 +5,8 @@ const { app, BrowserWindow, Menu, dialog, desktopCapturer, globalShortcut, ipcMa
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const http = require("http");
+const os = require("os");
 const { spawn, execFile } = require("child_process");
 
 /* זיהוי כמו Chrome רגיל (בלי המילה Electron) */
@@ -69,6 +71,28 @@ ipcMain.handle("stream-start", async (e, o) => {
 ipcMain.on("stream-chunk", (e, buf) => { if (studioFrame(e) && ff && ff.stdin.writable && ff.stdin.writableLength < 24e6) ff.stdin.write(Buffer.from(buf)); });
 ipcMain.handle("stream-stop", e => { if (!studioFrame(e) || !ff) return true; ffStopping = true; const me = ff; try { me.stdin.end(); } catch (er) { /* סגור */ } setTimeout(() => { try { me.kill(); } catch (er) { /* סגור */ } }, 2500); return true; });
 app.on("before-quit", () => { try { if (ff) ff.kill(); } catch (e) { /* סגור */ } });
+
+/* הצגה ברשת המקומית: שרת קטן שמגיש את הסצנה החיה כסרטון JPEG רציף, לכל מכשיר באותה רשת (במקום NDI) */
+let lan = null;
+const lanWrite = (res, f) => { if (res.writableLength > 2e6) return; res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${f.length}\r\n\r\n`); res.write(f); res.write("\r\n"); };
+function lanStop() { if (!lan) return; try { lan.clients.forEach(r => r.destroy()); lan.server.close(); } catch (e) { /* סגור */ } lan = null; }
+ipcMain.handle("lan-start", (e, o) => new Promise(resolve => {
+  if (!studioFrame(e)) return resolve({ error: "לא מורשה" }); lanStop();
+  const port = Math.max(1024, Math.min(65535, +o.port || 8765)), code = String(o.code || ""), st = { clients: new Set(), last: null, code };
+  st.server = http.createServer((req, res) => {
+    const u = new URL(req.url, "http://x");
+    if (code && u.searchParams.get("k") !== code) { res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }); res.end("נדרש קוד גישה"); return; }
+    if (u.pathname === "/") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(`<!doctype html><meta charset=utf-8><title>אולפן שידור</title><body style="margin:0;background:#000"><img src="/stream.mjpg${code ? "?k=" + encodeURIComponent(code) : ""}" style="width:100vw;height:100vh;object-fit:contain">`); }
+    else if (u.pathname === "/stream.mjpg") { res.writeHead(200, { "Content-Type": "multipart/x-mixed-replace; boundary=frame", "Cache-Control": "no-cache", Connection: "close" }); st.clients.add(res); req.on("close", () => st.clients.delete(res)); if (st.last) lanWrite(res, st.last); }
+    else if (u.pathname === "/frame.jpg" && st.last) { res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-cache" }); res.end(st.last); }
+    else { res.writeHead(404); res.end(); }
+  });
+  st.server.once("error", er => resolve({ error: er.code === "EADDRINUSE" ? "הפורט תפוס. נסו לסגור תוכנה אחרת או להפעיל שוב." : "לא הצלחנו להפעיל את השרת" }));
+  st.server.listen(port, "0.0.0.0", () => { lan = st; const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === "IPv4" && !i.internal).map(i => i.address); resolve({ ok: true, port, ips }); });
+}));
+ipcMain.on("lan-frame", (e, buf) => { if (!studioFrame(e) || !lan) return; lan.last = Buffer.from(buf); lan.clients.forEach(r => lanWrite(r, lan.last)); });
+ipcMain.handle("lan-stop", e => { if (studioFrame(e)) lanStop(); return true; });
+app.on("before-quit", lanStop);
 
 /* מקור "דף אינטרנט": חלון נסתר שמצייר דף ושולח את התמונה (עם שקיפות) לאולפן */
 const webWins = new Map();
