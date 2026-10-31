@@ -439,7 +439,7 @@ S.pgm = null; S.pvw = null; S.trans = null;
 S.scene = id => S.scenes.find(s => s.id === id) || null;
 S.take = function (type, ms) {
   const to = S.scene(S.pvw); if (!to || S.trans) return; const from = S.scene(S.pgm);
-  type = type || S.settings.trans; ms = ms == null ? S.settings.transMs : ms;
+  type = type || to.transType || S.settings.trans; ms = ms == null ? S.settings.transMs : ms;
   if (S.reduceMotion) { type = "cut"; ms = 0; }
   let stinger = null;
   if (type === "stinger") {
@@ -449,11 +449,17 @@ S.take = function (type, ms) {
   if (!from || type === "cut" || ms <= 0) { S.pgm = to.id; if (S.settings.studio && from) S.pvw = from.id; } else S.trans = { from, to, type, ms, t0: performance.now(), stinger };
   S.emit("scenes");
 };
+/* מעבר ידני (T-bar): מזיזים סרגל והמעבר מתקדם איתו. בקצה הסרגל הסצנה עוברת לשידור */
+S.manualTrans = function (v) {
+  if (!S.trans) { const to = S.scene(S.pvw), from = S.scene(S.pgm); if (!to || !from || to.id === from.id || v <= 0) return; let type = S.settings.trans; if (type === "cut" || type === "stinger") type = "fade"; S.trans = { from, to, type, ms: 1, t0: performance.now(), manual: true, p: 0 }; }
+  const T = S.trans; if (!T || !T.manual) return; T.p = Math.max(0, Math.min(1, v)); if (T.p >= .99) { T.p = 1; T.done = true; }
+};
+S.manualEnd = function () { const T = S.trans; if (T && T.manual && !T.done && T.p <= .02) S.trans = null; };
 S.goLive = function (id, type) { S.pvw = id; S.take(type); };
 let sA, sB;
 function ease(p) { return p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; }
 function compose(ctx, W, H) {
-  const T = S.trans, p = Math.min(1, (performance.now() - T.t0) / T.ms), e = ease(p);
+  const T = S.trans, p = T.manual ? T.p : Math.min(1, (performance.now() - T.t0) / T.ms), e = ease(p);
   if (!sA || sA.width !== W) { sA = document.createElement("canvas"); sB = document.createElement("canvas"); sA.width = sB.width = W; sA.height = sB.height = H; }
   const a = sA.getContext("2d"), b = sB.getContext("2d"); S.renderScene(a, T.from, W, H); S.renderScene(b, T.to, W, H);
   ctx.save(); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
@@ -471,7 +477,7 @@ function compose(ctx, W, H) {
     default: ctx.drawImage(sB, 0, 0);
   }
   ctx.restore();
-  if (p >= 1) { if (T.stinger && T.stinger.el) T.stinger.el.pause(); S.pgm = T.to.id; if (S.settings.studio) S.pvw = T.from.id; S.trans = null; S.emit("scenes"); }
+  if (T.manual ? T.done : p >= 1) { if (T.stinger && T.stinger.el) T.stinger.el.pause(); S.pgm = T.to.id; if (S.settings.studio) S.pvw = T.from.id; S.trans = null; S.emit("scenes"); }
 }
 
 /* ---------- לולאת ציור ---------- */

@@ -71,7 +71,7 @@ function build() {
           h("figure", { class: "mon pvw" }, h("figcaption", { id: "capPvw", text: "תצוגה מקדימה" }), h("div", { class: "cvwrap" }, S.pvwCanvas)),
           h("div", { class: "takebar" }, h("button", { class: "btn take", id: "btnTake", text: "שידור ◀", title: "מעביר את התצוגה המקדימה לשידור (רווח או Enter)", onclick: () => U.safeLive(S.pvw) }),
             h("button", { class: "btn", text: "חיתוך", title: "מעבר מיידי בלי אפקט (מקש C)", onclick: () => U.safeLive(S.pvw, "cut") }),
-            h("button", { class: "btn nextbtn", id: "btnNext", text: "הבאה ▶", title: "עוברים לסצנה שהוגדרה כבאה אחרי הסצנה בשידור (מקש N או PageDown)", onclick: () => U.act("next") }), h("div", { id: "transBox" })),
+            h("button", { class: "btn nextbtn", id: "btnNext", text: "הבאה ▶", title: "עוברים לסצנה שהוגדרה כבאה אחרי הסצנה בשידור (מקש N או PageDown)", onclick: () => U.act("next") }), h("div", { id: "transBox" }), h("label", { class: "ms", title: "מזיזים בעכבר את הסרגל, והמעבר מתקדם איתו. בקצה הימני הסצנה עוברת לשידור. נקרא גם T-bar בתוכנות אחרות." }, h("span", { text: "מעבר ידני (הזזה)" }), h("input", { type: "range", min: 0, max: 100, value: 0, id: "tbar", oninput: e => S.manualTrans(+e.target.value / 100), onchange: () => S.manualEnd() }))),
           h("figure", { class: "mon pgm" }, h("figcaption", { text: "שידור חי" }), h("div", { class: "cvwrap" }, S.pgmCanvas))),
         h("div", { class: "panel", id: "editor" })),
       h("section", { class: "col c" }, h("nav", { class: "tabs", id: "tabs" }), h("div", { id: "tabBody" }))));
@@ -233,7 +233,7 @@ U.renderScenes = function () {
 };
 setInterval(() => S.scenes.forEach(sc => { if (sc._thumb && sc._thumb.isConnected) S.renderScene(sc._thumb.getContext("2d"), sc, 160, 90); }), 700);
 U.nextLabel = function () { const b = $("#btnNext"), n = U.nextScene && U.nextScene(); if (b) b.textContent = n ? "הבאה: " + n.name + " ▶" : "הבאה ▶"; };
-S.on("scenes", () => { U.renderScenes(); U.nextLabel(); });
+S.on("scenes", () => { U.renderScenes(); U.nextLabel(); const tb = $("#tbar"); if (tb && !S.trans) tb.value = 0; });
 S.on("sources", () => U.renderSources());
 U.addScene = function () {
   const sc = S.newScene("סצנה " + (S.scenes.length + 1), "full");
@@ -281,6 +281,7 @@ U.renderEditor = function () {
   const o = sc.opts, ch = () => S.save();
   const srcOpts = [["", "(ריק)"]].concat(S.sources.filter(isVisual).map(s => [s.id, s.name]));
   box.append(h("h2", {}, "עריכת סצנה: ", h("input", { class: "inl", value: sc.name, oninput: e => { sc.name = e.target.value; ch(); }, onchange: () => U.renderScenes() }), h("small", { text: S.settings.studio ? " (התצוגה המקדימה)" : " (בשידור)" })),
+    U.field("מעבר מיוחד לסצנה הזו", U.sel([["", "לפי ההגדרה הכללית"]].concat(Object.entries(S.TRANS)), sc.transType || "", v => { sc.transType = v; ch(); }), "אפקט המעבר כשעוברים אל הסצנה הזו, במקום האפקט שבתפריט המעברים. למשל סצנת פתיחה עם סטינגר."),
     U.field("אחרי הסצנה הזו עוברים אל (מקש N, כפתור \"הבאה\", שלט מצגות וטלפון)", U.sel([["", "הסצנה הבאה ברשימה"]].concat(S.scenes.filter(x => x !== sc && !x.brb && !x.replay).map(x => [x.id, x.name])), sc.next || "", v => { sc.next = v; ch(); U.nextLabel(); })),
     h("div", { class: "lays" }, Object.keys(S.LAYOUTS).map(k => h("button", { class: "lay" + (sc.layout === k ? " on" : ""), title: S.LAYOUTS[k].name, onclick: () => { sc.layout = k; sc.slots.forEach(x => { x.rect = null; }); S.emit("scenes"); } }, miniLayout(k), h("small", { text: S.LAYOUTS[k].name })))));
   const n = S.slotCount(sc), slots = h("div", { class: "slots" }), nl = S.cellsOf(sc).length;
