@@ -94,7 +94,45 @@ S.colorFilter = function (cc) {
 };
 /* מסך ירוק (הסרת רקע בצבע): מחושב במעבד על עותק קטן (עד 960 פיקסלים לרוחב), כדי שיעבוד בכל מחשב. מחזיר קנבס עם שקיפות */
 let kc, kx;
+/* מסך ירוק בכרטיס המסך (WebGL): מהיר ובאיכות מלאה. פעיל רק כשיש כרטיס מסך אמיתי (לא אמולציה בתוכנה), ואפשר לכבות בהגדרות */
+let gl, glc, glp, glt, glu;
+S.gpuInfo = function () {
+  if (S._gpu !== undefined) return S._gpu;
+  try { const c = document.createElement("canvas").getContext("webgl"); const e = c && c.getExtension("WEBGL_debug_renderer_info"), r = c ? String(e ? c.getParameter(e.UNMASKED_RENDERER_WEBGL) : c.getParameter(c.RENDERER)) : "";
+    S._gpu = c ? { renderer: r, real: !/swiftshader|llvmpipe|software|basic render/i.test(r) } : null; } catch (e) { S._gpu = null; }
+  return S._gpu;
+};
+function glChroma(v, p) {
+  const [w, h] = dims(v); if (!w || !h) return null;
+  if (gl === undefined) {
+    try {
+      glc = document.createElement("canvas"); gl = glc.getContext("webgl", { premultipliedAlpha: true, alpha: true, preserveDrawingBuffer: true });
+      const mk = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+      glp = gl.createProgram(); gl.attachShader(glp, mk(gl.VERTEX_SHADER, "attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)/2.,1.-(p.y+1.)/2.);gl_Position=vec4(p,0.,1.);}"));
+      gl.attachShader(glp, mk(gl.FRAGMENT_SHADER, "precision mediump float;varying vec2 uv;uniform sampler2D t;uniform vec3 key;uniform float sim,sm,sp;" +
+        "vec2 cc(vec3 c){return vec2(-.169*c.r-.331*c.g+.5*c.b,.5*c.r-.419*c.g-.081*c.b);}" +
+        "void main(){vec4 c=texture2D(t,uv);float d=distance(cc(c.rgb),cc(key));float a=clamp((d-sim)/sm,0.,1.);" +
+        "float l=dot(c.rgb,vec3(.3,.59,.11));vec3 rgb=mix(c.rgb,vec3(l),sp*(1.-a)*step(.001,a));gl_FragColor=vec4(rgb*a,a);}"));
+      gl.linkProgram(glp); if (!gl.getProgramParameter(glp, gl.LINK_STATUS)) throw new Error("shader");
+      gl.useProgram(glp); const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(glp, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      glt = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, glt);
+      [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]].forEach(([a, c]) => gl.texParameteri(gl.TEXTURE_2D, a, c));
+      glu = ["key", "sim", "sm", "sp"].reduce((o, n) => (o[n] = gl.getUniformLocation(glp, n), o), {});
+    } catch (e) { gl = null; }
+  }
+  if (!gl || gl.isContextLost()) return null;
+  if (glc.width !== w || glc.height !== h) { glc.width = w; glc.height = h; gl.viewport(0, 0, w, h); }
+  const hex = (p.color || "#00ff00").replace("#", ""), rgb = [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16) / 255);
+  try { gl.bindTexture(gl.TEXTURE_2D, glt); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); } catch (e) { return null; }
+  gl.uniform3f(glu.key, rgb[0], rgb[1], rgb[2]); gl.uniform1f(glu.sim, (p.sim == null ? .12 : p.sim) * .5); gl.uniform1f(glu.sm, Math.max(.002, (p.smooth == null ? .08 : p.smooth) * .5)); gl.uniform1f(glu.sp, p.spill == null ? .5 : p.spill);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); return glc;
+}
 S.chromaFrame = function (v, p) {
+  const g = S.gpuInfo(); if (S.settings.gpuChroma !== false && g && g.real) { const r = glChroma(v, p); if (r) return r; }
+  return cpuChroma(v, p);
+};
+function cpuChroma(v, p) {
   const [w, h] = dims(v); if (!w || !h) return null;
   const sc = Math.min(1, 960 / w), cw = Math.round(w * sc), ch = Math.round(h * sc);
   if (!kc) { kc = document.createElement("canvas"); kx = kc.getContext("2d", { willReadFrequently: true }); }
@@ -112,7 +150,7 @@ S.chromaFrame = function (v, p) {
     d[i + 3] = a * 255;
   }
   kx.putImageData(im, 0, 0); return kc;
-};
+}
 /* החלק הנראה מהמקור (אחרי חיתוך) ואיפה ובאיזה גודל הוא מצויר בתוך החלון */
 S.geom = function (slot, v, w, h) {
   const [SW, SH] = dims(v), c = (slot && slot.crop) || [0, 0, 0, 0];
@@ -126,6 +164,7 @@ S.geom = function (slot, v, w, h) {
 S.visual = visual; S.dims = dims;
 
 S.renderScene = function (ctx, scene, W, H) {
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = S.settings.scaleQ || "high";
   const k = W / 1920, o = scene.opts, L = S.LAYOUTS[scene.layout] || S.LAYOUTS.full;
   if (S.drawBg) S.drawBg(ctx, o, W, H); else { const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, o.bg1); g.addColorStop(1, o.bg2); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
   const bg = o.bgSrc && S.src(o.bgSrc); if (bg) drawSrc(ctx, bg, 0, 0, W, H, null, k);
