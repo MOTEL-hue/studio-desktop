@@ -58,6 +58,8 @@ function build() {
       h("button", { class: "btn", id: "btnShot", text: "📸 צילום", title: "שומר תמונה של מה שמופיע בשידור עכשיו (מקש P)", onclick: () => U.act("shot") }),
       h("button", { class: "btn", id: "btnReplay", text: "⏪ הפעלה חוזרת", title: "מציג שוב את 10 השניות האחרונות (מקש Y). המאגר מופעל בלשונית הקלטה", hidden: true, onclick: () => U.act("replay") }),
       h("button", { class: "btn", id: "btnBrb", text: "⏸ רגע, חוזרים", title: "מעבר מיידי למסך המתנה, ולחיצה נוספת חוזרת (מקש B)", onclick: () => U.brb() }),
+      h("button", { class: "btn", id: "btnMusic", text: "🎙️ אולפן הקלטות", title: "הקלטת שירים, מנגנייה והורדת שירה משיר",
+        onclick: () => { location.href = document.body.dataset.music; } }),
       h("button", { class: "btn", id: "btnA11y", text: "♿ נגישות", title: "גודל כתב, ניגודיות והפחתת תנועה", onclick: () => U.a11yDlg() }),
       h("button", { class: "btn go", id: "btnInstall", text: "📥 התקנה כתוכנה", title: "מתקין את האולפן כתוכנה במחשב, עם סמל וחלון משלו, ועובד גם בלי אינטרנט", hidden: true, onclick: () => U.install() }),
       h("button", { class: "btn", id: "btnTheme", title: "מעבר בין מצב יום ללילה", onclick: U.toggleTheme }),
