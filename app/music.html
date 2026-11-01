@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>אולפן הקלטות</title>
+<link rel="stylesheet" href="studio/music.css">
+</head>
+<body class="mz-standalone">
+<main class="mz-main">
+<nav class="mz-back"><a class="btn btn-secondary" href="index.html">🎬 חזרה לאולפן השידור</a></nav>
+<header class="page-head">
+  <h1>🎙️ אולפן הקלטות <button type="button" id="mzInstall" class="btn" hidden>📥 התקנה כתוכנה</button>
+    <a href="#mzGuide" id="mzGuideBtn" class="btn btn-secondary">📘 מדריך מלא</a>
+    </h1>
+  <p class="help-text">מקליטים שירה על מנגינה, בונים מנגנון (תופים ואקורדים), מורידים את השירה משיר קיים כדי לקבל מנגינה בלבד,
+    ומחברים הכול לשיר אחד. הכול קורה במחשב שלכם, בדפדפן (מומלץ Chrome או Edge). העבודה נשמרת לבד במחשב הזה, ואפשר לשמור אותה גם לקובץ.</p>
+</header>
+
+<div id="mz" data-worklet="studio/music-rec.js" data-lame="studio/vendor/lame.min.js">
+
+<section class="card mz-proj">
+  <label class="mz-inline">📁 שם הפרויקט <input type="text" id="mzProjName" value="פרויקט חדש" maxlength="80"></label>
+  <span id="mzSaved" class="help-text" role="status"></span>
+  <span class="mz-inline">
+    <select id="mzProjects" aria-label="הפרויקטים שלי"></select>
+    <button type="button" id="mzProjOpen" class="btn btn-secondary">📂 פתיחה</button>
+    <button type="button" id="mzProjDel" class="btn btn-secondary">🗑 מחיקת פרויקט</button>
+  </span>
+  <button type="button" id="mzProjNew" class="btn btn-secondary">🆕 פרויקט חדש</button>
+  <button type="button" id="mzProjSave" class="btn btn-secondary">💾 שמירה לקובץ</button>
+  <label class="btn btn-secondary">📥 פתיחה מקובץ<input type="file" id="mzProjFile" accept=".mzproj" hidden></label>
+</section>
+
+<section class="card mz-transport">
+  <button type="button" id="mzPlay" class="btn">▶ ניגון</button>
+  <button type="button" id="mzStop" class="btn btn-secondary">⏹ עצירה</button>
+  <button type="button" id="mzRec" class="btn mz-rec">⏺ הקלטה</button>
+  <button type="button" id="mzUndo" class="btn btn-secondary" disabled>↶ ביטול</button>
+  <button type="button" id="mzRedo" class="btn btn-secondary" disabled>↷ חזרה</button>
+  <span id="mzTime" class="mz-time">0:00.0</span>
+  <input type="range" id="mzSeek" min="0" max="60" step="0.1" value="0" aria-label="מיקום בשיר">
+  <button type="button" id="mzZoomIn" class="btn btn-secondary">🔍+ הגדלה</button>
+  <button type="button" id="mzZoomOut" class="btn btn-secondary">🔍− הקטנה</button>
+  <input type="range" id="mzScroll" min="0" max="0" step="0.01" value="0" aria-label="גלילה בשיר" hidden>
+  <label class="mz-inline"><input type="checkbox" id="mzClick"> מטרונום</label>
+  <label class="mz-inline"><input type="checkbox" id="mzCount" checked> ספירה לפני הקלטה</label>
+  <label class="mz-inline">עיכוב מיקרופון (מ"ש) <input type="number" id="mzLatency" value="0" min="-500" max="1000" step="5"></label>
+  <label class="mz-inline">עוצמה כללית <input type="range" id="mzMaster" min="0" max="1.5" step="0.01" value="1"></label>
+  <button type="button" id="mzExport" class="btn">💾 ייצוא השיר (WAV)</button>
+  <button type="button" id="mzExportMp3" class="btn">🎵 ייצוא MP3</button>
+  <button type="button" id="mzMicTest" class="btn btn-secondary">🎤 בדיקת מיקרופון</button>
+  <label class="mz-inline"><input type="checkbox" id="mzMonitor"> לשמוע את עצמי</label>
+  <span id="mzMeterBox" class="mz-meter" hidden><span class="mz-meter-track"><span id="mzMeterBar"></span></span> <span id="mzMeterText"></span></span>
+  <span class="mz-inline mz-marks">
+    <button type="button" id="mzMarkA" class="btn btn-secondary">⟦ התחלת קטע</button>
+    <button type="button" id="mzMarkB" class="btn btn-secondary">⟧ סוף קטע</button>
+    <span id="mzRange" class="help-text"></span>
+    <button type="button" id="mzPunch" class="btn mz-rec" disabled>⏺ הקלטת הקטע</button>
+    <label class="mz-inline"><input type="checkbox" id="mzLoop"> 🔁 חזרה על הקטע</label>
+    <button type="button" id="mzMarkClear" class="btn btn-secondary">✖ ביטול סימון</button>
+  </span>
+  <div id="mzLyrBox" class="mz-lyr" hidden><div id="mzLyrNow"></div><div id="mzLyrNext"></div></div>
+  
+  <p class="help-text mz-status" id="mzStatus" role="status"></p>
+</section>
+
+<details class="card" id="mzLyrCard">
+  <summary>📝 מילות השיר (מוצגות למעלה בזמן ההקלטה)</summary>
+  <textarea id="mzLyrics" rows="6" placeholder="כותבים או מדביקים את מילות השיר, שורה בכל שורה" aria-label="מילות השיר"></textarea>
+  <div class="mz-row">
+    <button type="button" id="mzLyrTime" class="btn btn-secondary">⏱ תזמון השורות</button>
+    <button type="button" id="mzLyrStep" class="btn">↵ השורה הבאה</button>
+    <button type="button" id="mzLyrClear" class="btn btn-secondary">🧹 מחיקת תזמון</button>
+  </div>
+</details>
+
+<section class="card">
+  <h2>הערוצים</h2>
+  <p class="help-text" id="mzEmpty">עדיין אין ערוצים. מוסיפים שיר או מנגינה מהמחשב, מיוטיוב, מהמנגנייה - או לוחצים "⏺ הקלטה".</p>
+  <div id="mzTracks"></div>
+</section>
+
+<section class="card">
+  <h2>➕ הוספת ערוץ</h2>
+  <div class="mz-add">
+    <label class="btn btn-secondary">📂 קובץ מהמחשב<input type="file" id="mzFile" accept="audio/*,video/*" multiple hidden></label>
+    <button type="button" id="mzDemo" class="btn btn-secondary">🎵 דוגמה להתנסות</button>
+    
+  </div>
+</section>
+
+<section class="card" id="mzBeat">
+  <h2>🥁 מנגנייה - בניית מנגנון</h2>
+  <div class="mz-row">
+    <label>קצב (BPM) <input type="number" id="bmBpm" value="100" min="40" max="220"></label>
+    <label>תיבות <input type="number" id="bmBars" value="8" min="1" max="64"></label>
+    <label>סגנון תופים
+      <select id="bmPreset"><option value="pop">פופ</option><option value="rock">רוק</option><option value="hasidic">חסידי מהיר</option>
+        <option value="shuffle">שאפל חסידי</option><option value="mizrahi">מזרחי</option><option value="disco">דיסקו</option>
+        <option value="hiphop">היפ הופ</option><option value="reggae">רגאיי</option>
+        <option value="ballad">בלדה</option><option value="none">בלי תופים</option></select></label>
+    <label>צליל תופים
+      <select id="bmKit"><option value="std">רגיל</option><option value="elec">אלקטרוני</option><option value="soft">עדין</option></select></label>
+    <label>כלי לאקורדים
+      <select id="bmInst"><option value="piano">פסנתר</option><option value="pad">משטח רך</option><option value="organ">אורגן</option>
+        <option value="guitar">גיטרה</option><option value="synth">סינתי</option>
+        <option value="none">בלי אקורדים</option></select></label>
+    <label>נגינת האקורדים
+      <select id="bmStyle"><option value="hit">מכות</option><option value="arp">צליל אחרי צליל (ארפג'יו)</option></select></label>
+    <label class="mz-inline"><input type="checkbox" id="bmBass" checked> בס</label>
+    <label class="mz-inline"><input type="checkbox" id="bmFill"> מעבר תופים כל 4 תיבות</label>
+  </div>
+  <label class="mz-wide">אקורדים (אחד לכל תיבה, חוזרים מההתחלה) <input type="text" id="bmChords" value="Am F C G" dir="ltr"></label>
+  <div id="bmGrid" class="bm-grid" dir="ltr"></div>
+  <div class="mz-row">
+    <button type="button" id="bmPreview" class="btn btn-secondary">🔊 השמעה</button>
+    <button type="button" id="bmAdd" class="btn">➕ הוספה כערוץ</button>
+  </div>
+</section>
+
+<details class="card mz-guide" id="mzGuide">
+  <summary>📘 המדריך המלא - איך עושים כל דבר</summary>
+  <p class="help-text">פרקים קצרים לפי נושא. לוחצים על פרק כדי לפתוח אותו. טיפ: מעבירים את העכבר על כל כפתור ומופיע הסבר קצר.</p>
+  <div id="mzGuideBody"></div>
+</details>
+
+</div>
+<script src="studio/music_guide.js" defer></script>
+<script src="studio/music.js" defer></script>
+
+</main>
+</body></html>
