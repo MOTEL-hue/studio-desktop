@@ -35,6 +35,7 @@
   <button type="button" id="mzPlay" class="btn">▶ ניגון</button>
   <button type="button" id="mzStop" class="btn btn-secondary">⏹ עצירה</button>
   <button type="button" id="mzRec" class="btn mz-rec">⏺ הקלטה</button>
+  <button type="button" id="mzRecSys" class="btn btn-secondary mz-rec">🔊 הקלטת שמע מהמחשב</button>
   <button type="button" id="mzUndo" class="btn btn-secondary" disabled>↶ ביטול</button>
   <button type="button" id="mzRedo" class="btn btn-secondary" disabled>↷ חזרה</button>
   <span id="mzTime" class="mz-time">0:00.0</span>
@@ -48,6 +49,10 @@
   <label class="mz-inline">עוצמה כללית <input type="range" id="mzMaster" min="0" max="1.5" step="0.01" value="1"></label>
   <button type="button" id="mzExport" class="btn">💾 ייצוא השיר (WAV)</button>
   <button type="button" id="mzExportMp3" class="btn">🎵 ייצוא MP3</button>
+  <span class="mz-inline">
+    <button type="button" id="mzStems" class="btn btn-secondary">📦 ייצוא כל ערוץ בנפרד (ZIP)</button>
+    <select id="mzStemFmt" aria-label="פורמט הערוצים"><option value="wav">WAV</option><option value="mp3">MP3</option></select>
+  </span>
   <button type="button" id="mzMicTest" class="btn btn-secondary">🎤 בדיקת מיקרופון</button>
   <label class="mz-inline"><input type="checkbox" id="mzMonitor"> לשמוע את עצמי</label>
   <span id="mzMeterBox" class="mz-meter" hidden><span class="mz-meter-track"><span id="mzMeterBar"></span></span> <span id="mzMeterText"></span></span>
@@ -61,6 +66,8 @@
   </span>
   <div id="mzLyrBox" class="mz-lyr" hidden><div id="mzLyrNow"></div><div id="mzLyrNext"></div></div>
   
+  <span class="mz-desk help-text">💻 בתוכנה: <bdi dir="ltr">Ctrl+Alt+R</bdi> מתחיל ועוצר הקלטה גם כשחלון אחר פתוח.</span>
+  <span class="help-text">מקש <bdi dir="ltr">F9</bdi> מתחיל ועוצר הקלטה.</span>
   <p class="help-text mz-status" id="mzStatus" role="status"></p>
 </section>
 
@@ -119,6 +126,30 @@
     <button type="button" id="bmAdd" class="btn">➕ הוספה כערוץ</button>
   </div>
 </section>
+
+<details class="card" id="mzPiano">
+  <summary>🎹 נגינה: פסנתר על המסך, מקלדת המחשב או מקלדת MIDI</summary>
+  <p class="help-text">מנגנים ומקליטים נגינה כערוץ. עם מקלדת המחשב: <bdi dir="ltr">Z S X D C V G B H N J M</bdi> (שורה תחתונה) ו-<bdi dir="ltr">Q 2 W 3 E R 5 T 6 Y 7 U</bdi> (שורה עליונה).</p>
+  <div class="mz-row">
+    <label>כלי <select id="pnInst"><option value="piano">פסנתר</option><option value="organ">אורגן</option><option value="synth">סינתי</option><option value="pad">משטח רך</option></select></label>
+    <button type="button" id="pnOctDn" class="btn btn-secondary">⬇ אוקטבה</button>
+    <span id="pnOct" class="help-text"></span>
+    <button type="button" id="pnOctUp" class="btn btn-secondary">⬆ אוקטבה</button>
+    <button type="button" id="pnMidi" class="btn btn-secondary">🎹 חיבור מקלדת MIDI</button>
+    <button type="button" id="pnRec" class="btn mz-rec">⏺ הקלטת נגינה</button>
+  </div>
+  <div id="pnKeys" class="pn-keys" dir="ltr"></div>
+</details>
+
+<details class="card" id="mzCompare">
+  <summary>🌐💻 מה יש באתר ומה בתוכנה למחשב</summary>
+  <p class="help-text">כמעט הכול זהה בשניהם. מה שצריך את האתר או התוכנה מסומן בכפתור עצמו.</p>
+  <ul class="help-text">
+    <li><b>בשניהם:</b> הקלטה, מנגנייה, אפקטים, ניקוי רעשים, תיקון זיופים, הורדת שירה, חיתוך, ביטול פעולה, הגדלה, קטע וחזרה, מילות שיר, נגינה בפסנתר ו-MIDI, ניסיונות נוספים, הנמכת עוצמה, שמירת פרויקטים, ייצוא WAV/MP3 וייצוא כל ערוץ בנפרד, והקלטת שמע מהמחשב.</li>
+    <li><b>🌐 באתר בלבד</b> (צריך את השרת): הבאה מיוטיוב, קישור להאזנה, שמירה בדרייב, העלאה לקו הטלפון, הקלטה דרך הטלפון וכתיבת מילים בבינה מלאכותית.</li>
+    <li><b>💻 בתוכנה בלבד:</b> סמל נפרד בשולחן העבודה, לחיצה כפולה על קובץ פרויקט, מקש קיצור כללי להקלטה (<bdi dir="ltr">Ctrl+Alt+R</bdi>) שעובד גם כשחלון אחר פתוח, והקלטת כל שמע המחשב בלי לבחור כרטיסייה.</li>
+  </ul>
+</details>
 
 <details class="card mz-guide" id="mzGuide">
   <summary>📘 המדריך המלא - איך עושים כל דבר</summary>

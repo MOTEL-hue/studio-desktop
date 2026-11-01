@@ -59,28 +59,39 @@
   const bpm = () => Math.min(220, Math.max(40, num($("bmBpm"), 100)));
 
   // ---------- ניגון ----------
-  function schedule(c, out, from, when) {
+  let recSkip = null; // בזמן ניסיון נוסף: הערוץ שמקליטים מחדש (וכל ניסיונותיו) לא מתנגן
+  function schedule(c, out, from, when, only = null) {
     const nodes = [];
     const anySolo = tracks.some((t) => t.solo);
     let verb = null;
     for (const t of tracks) {
       const L = len(t);
-      if (t.mute || (anySolo && !t.solo) || L <= 0 || t.start + L <= from) continue;
+      if (only ? t !== only : (t.mute || (anySolo && !t.solo) || (recSkip && (t === recSkip || (recSkip.group && t.group === recSkip.group))))) continue;
+      if (L <= 0 || t.start + L <= from) continue;
       const src = c.createBufferSource();
       src.buffer = t.buf;
       const g = c.createGain();
       fxChain(c, t, src, nodes).connect(g);
-      let last = g;
+      const ag = c.createGain(); // הנמכות בקטעים מסומנים
+      g.connect(ag);
+      for (const sg of t.auto || []) {
+        const ta = when + sg.a - from, tb = when + sg.b - from;
+        if (tb <= when) continue;
+        if (ta <= when) ag.gain.setValueAtTime(sg.v, when);
+        else { ag.gain.setValueAtTime(1, Math.max(when, ta - 0.12)); ag.gain.linearRampToValueAtTime(sg.v, ta); }
+        ag.gain.setValueAtTime(sg.v, tb); ag.gain.linearRampToValueAtTime(1, tb + 0.12);
+      }
+      let last = ag;
       if (t.chorus > 0) { // מקהלה: עותק מושהה מעט, שהשהייתו "מתנדנדת"
         const d = c.createDelay(0.1); d.delayTime.value = 0.025;
         const lfo = c.createOscillator(); lfo.frequency.value = 1.3;
         const depth = c.createGain(); depth.gain.value = 0.006;
         lfo.connect(depth); depth.connect(d.delayTime); lfo.start(when);
         const wet = c.createGain(); wet.gain.value = t.chorus * 0.8;
-        g.connect(d); d.connect(wet); wet.connect(out);
+        ag.connect(d); d.connect(wet); wet.connect(out);
         nodes.push(lfo);
       }
-      if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = t.pan; g.connect(p); last = p; }
+      if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = t.pan; ag.connect(p); last = p; }
       last.connect(out);
       if (t.reverb > 0) {
         if (!verb) { verb = c.createConvolver(); verb.buffer = impulse(c); verb.connect(out); }
@@ -214,6 +225,57 @@
     $("mzPlay").textContent = "▶ ניגון";
   }
 
+  // ---------- ניסיונות נוספים לאותו ערוץ ----------
+  // כל ניסיון הוא ערוץ רגיל באותה "קבוצה"; רק אחד מהם נשמע (והשאר מוסתרים ומושתקים), ובוחרים ברשימה בראש הערוץ.
+  let retakeOf = null;
+  const groupMembers = (g) => (g ? tracks.filter((t) => t.group === g) : []);
+  function applyGroups() {
+    const seen = new Set();
+    for (const t of tracks) {
+      const sel = t.el.querySelector(".mz-take");
+      if (!t.group) { t.el.hidden = false; sel.hidden = true; continue; }
+      if (seen.has(t.group)) continue;
+      seen.add(t.group);
+      const members = groupMembers(t.group);
+      const active = members.filter((m) => !m.mute).pop() || members[members.length - 1];
+      members.forEach((m, i) => {
+        m.mute = m !== active;
+        m.el.hidden = m !== active;
+        const sl = m.el.querySelector(".mz-take");
+        sl.hidden = members.length < 2;
+        sl.innerHTML = "";
+        members.forEach((o, j) => { const op = document.createElement("option"); op.value = j; op.textContent = `🎬 ${o.name}`; op.selected = o === active; sl.appendChild(op); });
+        sync(m);
+      });
+    }
+  }
+  function updateRetake() {
+    for (const t of tracks) {
+      const b = t.el.querySelector('[data-a="retake"]');
+      b.textContent = retakeOf === t ? "✖ ביטול ניסיון נוסף" : "🎬 ניסיון נוסף";
+      b.classList.toggle("btn-secondary", retakeOf !== t);
+    }
+  }
+  function takeJoin(nt) { // ערוץ שהוקלט הרגע מצטרף כניסיון לערוץ שסומן
+    if (!nt || !retakeOf) return;
+    const base = retakeOf;
+    retakeOf = null;
+    if (tracks.includes(base)) {
+      base.group = base.group || newId();
+      nt.group = base.group;
+      const n = groupMembers(base.group).length;
+      nt.name = `${base.name.replace(/ \(ניסיון \d+\)$/, "")} (ניסיון ${n})`;
+      nt.el.querySelector(".mz-name").value = nt.name;
+      groupMembers(base.group).forEach((m) => { m.mute = m !== nt; });
+      base.el.after(nt.el);
+      applyGroups();
+      status(`נוסף ${nt.name}. בראש הערוץ בוחרים איזה ניסיון נשמע.`);
+    }
+    updateRetake();
+    redraw();
+    touch();
+  }
+
   // התצוגה: איזה קטע מהשיר רואים ברוחב הגלים (בהגדלה רואים רק חלק, וגוללים)
   let zoom = 1, viewStart = 0;
   function view() {
@@ -263,7 +325,7 @@
     if (buf.duration > MAX_SECONDS) { status(`הקובץ ארוך מדי (עד ${MAX_SECONDS / 60} דקות).`); return null; }
     const t = { id: nextId++, name, buf, start: 0, vol: 1, pan: 0, mute: false, solo: false, reverb: 0, echo: 0,
       fadeIn: 0, fadeOut: 0, trimS: 0, trimE: 0, bufId: newId(),
-      eqLow: 0, eqMid: 0, eqHigh: 0, filter: 0, drive: 0, tremolo: 0, comp: 0, chorus: 0, ...extra };
+      eqLow: 0, eqMid: 0, eqHigh: 0, filter: 0, drive: 0, tremolo: 0, comp: 0, chorus: 0, group: "", auto: [], ...extra };
     t.el = buildTrack(t);
     tracks.push(t);
     $("mzTracks").appendChild(t.el);
@@ -280,6 +342,7 @@
       <button type="button" class="btn btn-secondary" data-a="mute">🔇 השתקה</button>
       <button type="button" class="btn btn-secondary" data-a="solo">🎧 סולו</button>
       <button type="button" class="btn btn-secondary" data-a="del">🗑 מחיקה</button>
+      <select class="mz-take" hidden aria-label="הניסיון שנשמע"></select>
     </div>
     <div class="mz-wavebox" dir="ltr"><canvas class="mz-wave"></canvas><span class="mz-region" hidden></span><span class="mz-line"></span></div>
     <div class="mz-ctl">
@@ -323,6 +386,11 @@
         <option value="1">מלא (רובוטי)</option></select></label>
       <button type="button" class="btn btn-secondary" data-a="tune">🎯 תיקון זיופים</button>
       <button type="button" class="btn btn-secondary" data-a="norm">📈 הגברה לרמה מלאה</button>
+      <button type="button" class="btn btn-secondary" data-a="retake">🎬 ניסיון נוסף</button>
+      <label class="mz-inline">הנמכה <select class="mz-dip"><option value="0.05">לשקט</option><option value="0.2">חזקה</option>
+        <option value="0.4" selected>בינונית</option><option value="0.7">קלה</option></select></label>
+      <button type="button" class="btn btn-secondary" data-a="dip">🔉 הנמכה בקטע המסומן</button>
+      <button type="button" class="btn btn-secondary" data-a="undip">↺ ביטול הנמכות</button>
       <label class="mz-inline">סולם <select data-k="semi">${[-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
         .map((n) => `<option value="${n}">${n > 0 ? "+" : ""}${n}</option>`).join("")}</select></label>
       <label class="mz-inline"><input type="checkbox" class="mz-keep" checked> בלי לשנות מהירות</label>
@@ -356,6 +424,13 @@
     });
     el.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => action(t, b.dataset.a)));
     tips(el);
+    el.querySelector(".mz-take").addEventListener("change", (e) => {
+      const members = groupMembers(t.group);
+      members.forEach((m, i) => { m.mute = i !== +e.target.value; });
+      applyGroups(); redraw();
+      if (playing) play(now());
+      touch();
+    });
     const preset = el.querySelector(".mz-preset");
     preset.addEventListener("change", () => {
       const p = FX_PRESETS[preset.value];
@@ -382,9 +457,27 @@
 
   async function action(t, a) {
     if (a === "mute" || a === "solo") { t[a] = !t[a]; sync(t); if (playing) play(now()); return; }
+    if (a === "retake") {
+      retakeOf = retakeOf === t ? null : t;
+      updateRetake();
+      status(retakeOf ? "ההקלטה הבאה (מיקרופון, טלפון, נגינה או שמע מהמחשב) תיכנס כניסיון נוסף לערוץ הזה, והוא לא ינוגן בזמן ההקלטה. מזיזים את הסמן להתחלה ומקליטים. בערוץ תופיע רשימה לבחירת הניסיון." : "ביטלתם את הניסיון הנוסף.");
+      return;
+    }
+    if (a === "dip") {
+      if (markA === null || markB === null) { status("קודם מסמנים קטע: לוחצים על הגל ו\"⟦ התחלת קטע\", ואז על הגל ו\"⟧ סוף קטע\"."); return; }
+      const v = +t.el.querySelector(".mz-dip").value;
+      t.auto = (t.auto || []).filter((x) => x.b <= markA || x.a >= markB).concat({ a: +markA.toFixed(3), b: +markB.toFixed(3), v }).sort((x, y) => x.a - y.a);
+      redraw(); touch();
+      if (playing) play(now());
+      status("הערוץ יונמך בקטע המסומן (הקטע מוצג באדום על הגל). ניגון והאזנה בודקים אם זה מתאים.");
+      return;
+    }
+    if (a === "undip") { t.auto = []; redraw(); touch(); if (playing) play(now()); status("ההנמכות בערוץ בוטלו."); return; }
     if (a === "del") {
       if (!confirm(`למחוק את הערוץ "${t.name}"?`)) return;
-      tracks.splice(tracks.indexOf(t), 1); t.el.remove(); touch();
+      tracks.splice(tracks.indexOf(t), 1); t.el.remove();
+      if (retakeOf === t) retakeOf = null;
+      applyGroups(); updateRetake(); touch();
       $("mzEmpty").hidden = tracks.length > 0;
       if (playing) play(now());
       redraw(); return;
@@ -406,7 +499,7 @@
         if (cut <= 0.05 || cut >= len(t) - 0.05) { status("הסמן לא נמצא בתוך הערוץ הזה. מזיזים את הסמן (לחיצה על הגל) למקום החיתוך."); return; }
         const extra = {};
         for (const k of TRACK_KEYS) if (k !== "name") extra[k] = t[k];
-        Object.assign(extra, { start: p, trimS: t.trimS + cut, fadeIn: 0 });
+        Object.assign(extra, { start: p, trimS: t.trimS + cut, fadeIn: 0, group: "" });
         t.trimE = t.buf.duration - (t.trimS + cut); t.fadeOut = 0;
         const nt = addTrack(t.buf, `${t.name} (המשך)`, extra);
         t.el.after(nt.el);
@@ -478,6 +571,11 @@
         for (let i = Math.max(s0, a); i < b; i += stride) { const v = Math.abs(d[i]); if (v > mx) mx = v; }
         const h = Math.max(1, mx * H);
         g.fillRect(x, (H - h) / 2, 1, h);
+      }
+      g.fillStyle = "rgba(239,68,68,.22)"; // קטעי הנמכה
+      for (const sg of t.auto || []) {
+        const x1 = Math.max(0, ((sg.a - v0) / vlen) * W), x2 = Math.min(W, ((sg.b - v0) / vlen) * W);
+        if (x2 > x1) g.fillRect(x1, 0, x2 - x1, H);
       }
     }
     updateHead();
@@ -902,12 +1000,12 @@
   let workletReady = null;
   // ---------- מיקרופון: מד עוצמה ושמיעה עצמית ----------
   let micAn = null, micMon = null, micSrc = null, micTest = null, meterPeak = 0;
-  function attachMic(c, stream) {
+  function attachMic(c, stream, monitor = true) {
     micSrc = c.createMediaStreamSource(stream);
     micAn = c.createAnalyser(); micAn.fftSize = 1024;
     micSrc.connect(micAn);
     // שמיעה עצמית: הקול חוזר לאוזניות, עם קצת הד כדי שיהיה נעים לשיר
-    micMon = c.createGain(); micMon.gain.value = $("mzMonitor").checked ? 1 : 0;
+    micMon = c.createGain(); micMon.gain.value = monitor && $("mzMonitor").checked ? 1 : 0;
     const verb = c.createConvolver(); verb.buffer = impulse(c);
     const send = c.createGain(); send.gain.value = 0.2;
     micSrc.connect(micMon); micMon.connect(masterIn); micMon.connect(send); send.connect(verb); verb.connect(masterIn);
@@ -1015,14 +1113,22 @@
   $("mzMarkClear").addEventListener("click", () => { markA = markB = null; showMarks(); updateHead(); touch(); });
   $("mzPunch").addEventListener("click", () => { if (!rec) startRec(true).catch((e) => status(`ההקלטה נכשלה: ${e.message || e}`)); });
 
-  async function startRec(punch = false) {
+  async function startRec(punch = false, sys = false) {
     const c = audio();
     if (!navigator.mediaDevices || !c.audioWorklet) { status("הדפדפן הזה לא יכול להקליט כאן. נסו Chrome או Edge."); return; }
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      if (sys) {
+        // שמע של המחשב: באתר בוחרים כרטיסייה (ומסמנים "שתף שמע"), בתוכנה נקלט כל השמע של המחשב
+        const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        disp.getVideoTracks().forEach((tr) => tr.stop());
+        if (!disp.getAudioTracks().length) { disp.getTracks().forEach((tr) => tr.stop()); status("לא נבחר שמע. בחלון הבחירה מסמנים \"שתף שמע של הכרטיסייה\" (או \"שמע המערכת\")."); return; }
+        stream = new MediaStream(disp.getAudioTracks());
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      }
     } catch (e) {
-      status("אין גישה למיקרופון. מאשרים בחלון של הדפדפן (ליד שורת הכתובת) ומנסים שוב.");
+      status(sys ? "לא נבחר מקור שמע, או שהדפדפן לא מאפשר. נסו Chrome או Edge." : "אין גישה למיקרופון. מאשרים בחלון של הדפדפן (ליד שורת הכתובת) ומנסים שוב.");
       return;
     }
     workletReady = workletReady || c.audioWorklet.addModule(root.dataset.worklet);
@@ -1031,7 +1137,7 @@
     halt();
     stopMicTest();
     const node = new AudioWorkletNode(c, "mz-rec");
-    const src = attachMic(c, stream);
+    const src = attachMic(c, stream, !sys);
     const sink = c.createGain(); sink.gain.value = 0;
     src.connect(node); node.connect(sink); sink.connect(c.destination);
     const chunks = [];
@@ -1039,15 +1145,17 @@
     const finished = new Promise((ok) => { done = ok; });
     node.port.onmessage = (e) => { if (e.data.done) done(); else chunks.push(e.data); };
     const beat = 60 / bpm();
-    const count = $("mzCount").checked ? 4 * beat : 0;
+    const count = !sys && $("mzCount").checked ? 4 * beat : 0;
     const when = c.currentTime + 0.15 + count;
     if (count) for (let i = 0; i < 4; i++) click(c, masterIn, when - count + i * beat, i === 0);
-    play(from, when - c.currentTime);
-    rec = { node, stream, src, sink, chunks, finished, when, from, punch };
+    recSkip = retakeOf;
+    if (!sys) play(from, when - c.currentTime); // שמע מהמחשב: לא מנגנים את הפרויקט, כדי שלא יוקלט שוב
+    rec = { node, stream, src, sink, chunks, finished, when: sys ? c.currentTime : when, from, punch, sys };
     if (punch) { const r0 = rec; setTimeout(() => { if (rec === r0) stopRec(); }, (when - c.currentTime + (markB - from) + 0.4) * 1000); }
-    $("mzRec").classList.add("on");
-    $("mzRec").textContent = "⏹ סיום הקלטה";
-    status(count ? "סופרים 4 פעימות... ואז שרים." : "מקליט...");
+    const btn = sys ? $("mzRecSys") : $("mzRec");
+    btn.classList.add("on");
+    btn.textContent = "⏹ סיום הקלטה";
+    status(sys ? "מקליט את שמע המחשב. מפעילים את מה שרוצים להקליט, ולוחצים שוב לסיום." : count ? "סופרים 4 פעימות... ואז שרים." : "מקליט...");
     if (count) setTimeout(() => { if (rec) status("מקליט..."); }, count * 1000 + 150);
   }
 
@@ -1055,8 +1163,8 @@
     const r = rec;
     rec = null;
     halt();
-    $("mzRec").classList.remove("on");
-    $("mzRec").textContent = "⏺ הקלטה";
+    recSkip = null;
+    for (const [b, label] of [[$("mzRec"), "⏺ הקלטה"], [$("mzRecSys"), "🔊 הקלטת שמע מהמחשב"]]) { b.classList.remove("on"); b.textContent = label; }
     r.node.port.postMessage("stop");
     await Promise.race([r.finished, new Promise((ok) => setTimeout(ok, 1500))]);
     detachMic();
@@ -1067,7 +1175,7 @@
     const f0 = r.chunks[0].f;
     const n = r.chunks.reduce((s, ch) => s + ch.l.length, 0);
     // הקול שומעים באיחור (רמקול/אוזניות) ונקלט באיחור (מיקרופון): מזיזים את ההקלטה אחורה בהתאם
-    const lat = (c.outputLatency || c.baseLatency || 0) + num($("mzLatency")) / 1000;
+    const lat = r.sys ? 0 : (c.outputLatency || c.baseLatency || 0) + num($("mzLatency")) / 1000;
     const skip = Math.round((r.when + lat) * c.sampleRate) - f0;
     const stereo = r.chunks.every((ch) => ch.r);
     const length = n - Math.max(0, skip);
@@ -1083,16 +1191,21 @@
     if (r.punch && markA !== null && markB !== null) {
       const trimS = Math.max(0, markA - recStart), trimE = Math.max(0, recStart + buf.duration - markB);
       if (buf.duration - trimS - trimE > 0.05) {
-        addTrack(buf, `הקלטה ${++recCount} (קטע)`, { start: +(recStart + trimS).toFixed(3), trimS: +trimS.toFixed(3), trimE: +trimE.toFixed(3), fadeIn: 0.03, fadeOut: 0.03 });
-        status("הקטע הוקלט כערוץ חדש. בערוץ הישן חותכים את אותו קטע (✂) ומוחקים אותו, או משתיקים את הישן.");
+        const wasRetake = !!retakeOf;
+        takeJoin(addTrack(buf, `הקלטה ${++recCount} (קטע)`, { start: +(recStart + trimS).toFixed(3), trimS: +trimS.toFixed(3), trimE: +trimE.toFixed(3), fadeIn: 0.03, fadeOut: 0.03 }));
+        if (!wasRetake) status("הקטע הוקלט כערוץ חדש. בערוץ הישן חותכים את אותו קטע (✂) ומוחקים אותו, או משתיקים את הישן.");
         return;
       }
     }
-    addTrack(buf, `הקלטה ${++recCount}`, { start: recStart });
-    status("ההקלטה נוספה כערוץ חדש.");
+    const added = addTrack(buf, `${r.sys ? "שמע מהמחשב" : "הקלטה"} ${++recCount}`, { start: recStart });
+    if (retakeOf) takeJoin(added); else status(r.sys ? "שמע המחשב נוסף כערוץ חדש." : "ההקלטה נוספה כערוץ חדש.");
   }
 
-  $("mzRec").addEventListener("click", () => (rec ? stopRec() : startRec()).catch((e) => status(`ההקלטה נכשלה: ${e.message || e}`)));
+  const recFail = (e) => status(`ההקלטה נכשלה: ${e.message || e}`);
+  $("mzRec").addEventListener("click", () => (rec ? stopRec() : startRec()).catch(recFail));
+  $("mzRecSys").addEventListener("click", () => (rec ? stopRec() : startRec(false, true)).catch(recFail));
+  window.__mzToggleRec = () => (rec ? stopRec() : startRec()).catch(recFail); // גם למקש קיצור כללי בתוכנה למחשב
+  document.addEventListener("keydown", (e) => { if (e.key === "F9" && !e.ctrlKey) { e.preventDefault(); window.__mzToggleRec(); } });
   $("mzPlay").addEventListener("click", () => { if (rec) return; if (playing) halt(); else play(pos); tick(); });
   $("mzStop").addEventListener("click", () => { if (rec) { stopRec(); return; } if (!playing) pos = 0; halt(); tick(); });
   $("mzSeek").addEventListener("input", (e) => { if (!rec) seekTo(+e.target.value); });
@@ -1173,6 +1286,232 @@
       btn.disabled = false;
     }
   });
+  // ---------- נגינה: פסנתר על המסך, מקלדת המחשב ו-MIDI ----------
+  const pnBase = () => 48 + 12 * pnOct; // 2 אוקטבות מתחילות מדו
+  let pnOct = 1, pnRecording = false, pnEvents = [], pnFrom = 0;
+  const pnLive = new Map();
+  const NOTE_HE = ["דו", "דו#", "רה", "רה#", "מי", "פה", "פה#", "סול", "סול#", "לה", "לה#", "סי"];
+  function voiceNodes(c, out, inst, midi, t, vel) {
+    const o = c.createOscillator();
+    o.type = inst === "organ" ? "sine" : inst === "piano" ? "triangle" : "sawtooth";
+    o.frequency.value = hz(midi);
+    const g = c.createGain(), peak = 0.3 * vel;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.012);
+    if (inst === "piano") g.gain.exponentialRampToValueAtTime(Math.max(peak * 0.35, 0.001), t + 0.9);
+    if (inst === "synth" || inst === "pad") {
+      const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = inst === "pad" ? 1200 : 2400;
+      o.connect(lp); lp.connect(g);
+    } else o.connect(g);
+    g.connect(out);
+    o.start(t);
+    return {
+      off(tt) {
+        const rel = inst === "pad" ? 0.5 : 0.22;
+        if (g.gain.cancelAndHoldAtTime) g.gain.cancelAndHoldAtTime(tt); else g.gain.cancelScheduledValues(tt);
+        g.gain.setTargetAtTime(0.0001, tt, rel / 3);
+        o.stop(tt + rel * 2.5);
+      },
+    };
+  }
+  function noteOn(m, vel = 0.8) {
+    if (pnLive.has(m)) return;
+    const c = audio();
+    pnLive.set(m, voiceNodes(c, masterIn, $("pnInst").value, m, c.currentTime, vel));
+    pianoKey(m, true);
+    if (pnRecording) pnEvents.push({ m, t: now(), vel, off: null });
+  }
+  function noteOff(m) {
+    const v = pnLive.get(m);
+    if (!v) return;
+    pnLive.delete(m);
+    v.off(ctx.currentTime);
+    pianoKey(m, false);
+    if (pnRecording) { const e = [...pnEvents].reverse().find((x) => x.m === m && x.off === null); if (e) e.off = now(); }
+  }
+  function pianoKey(m, on) { const b = document.querySelector(`#pnKeys [data-m="${m}"]`); if (b) b.classList.toggle("on", on); }
+  function buildKeys() {
+    const box = $("pnKeys");
+    box.innerHTML = "";
+    $("pnOct").textContent = `${NOTE_HE[0]} ${pnOct + 3} עד ${NOTE_HE[11]} ${pnOct + 4}`;
+    const white = [0, 2, 4, 5, 7, 9, 11];
+    for (let i = 0; i < 24; i++) {
+      if (!white.includes(i % 12)) continue;
+      const w = document.createElement("button");
+      w.type = "button"; w.className = "pn-w"; w.dataset.m = pnBase() + i; w.setAttribute("aria-label", `קליד ${NOTE_HE[i % 12]}`);
+      if (i + 1 < 24 && !white.includes((i + 1) % 12)) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "pn-b"; b.dataset.m = pnBase() + i + 1; b.setAttribute("aria-label", `קליד שחור ${NOTE_HE[(i + 1) % 12]}`);
+        w.appendChild(b);
+      }
+      box.appendChild(w);
+    }
+  }
+  $("pnKeys").addEventListener("pointerdown", (e) => {
+    const k = e.target.closest("[data-m]");
+    if (!k) return;
+    e.preventDefault(); e.stopPropagation();
+    k.setPointerCapture(e.pointerId);
+    noteOn(+k.dataset.m);
+  });
+  const pnUp = (e) => { const k = e.target.closest("[data-m]"); if (k) noteOff(+k.dataset.m); };
+  $("pnKeys").addEventListener("pointerup", pnUp);
+  $("pnKeys").addEventListener("pointercancel", pnUp);
+  $("pnOctDn").addEventListener("click", () => { pnOct = Math.max(0, pnOct - 1); buildKeys(); });
+  $("pnOctUp").addEventListener("click", () => { pnOct = Math.min(4, pnOct + 1); buildKeys(); });
+  // לפי מקש פיזי (לא לפי האות), כך שעובד גם כשהמקלדת בעברית
+  const KEYMAP = {};
+  ["KeyZ", "KeyS", "KeyX", "KeyD", "KeyC", "KeyV", "KeyG", "KeyB", "KeyH", "KeyN", "KeyJ", "KeyM"].forEach((k, i) => { KEYMAP[k] = i; });
+  ["KeyQ", "Digit2", "KeyW", "Digit3", "KeyE", "KeyR", "Digit5", "KeyT", "Digit6", "KeyY", "Digit7", "KeyU"].forEach((k, i) => { KEYMAP[k] = 12 + i; });
+  const keyNote = (e) => {
+    if (!$("mzPiano").open || e.ctrlKey || e.metaKey || e.altKey || e.target.matches("input, textarea, select")) return null;
+    const i = KEYMAP[e.code];
+    return i === undefined ? null : pnBase() + i;
+  };
+  document.addEventListener("keydown", (e) => { const m = keyNote(e); if (m !== null && !e.repeat) { e.preventDefault(); noteOn(m); } });
+  document.addEventListener("keyup", (e) => { const m = keyNote(e); if (m !== null) noteOff(m); });
+  buildKeys();
+
+  let midiOn = false;
+  $("pnMidi").addEventListener("click", async () => {
+    if (!navigator.requestMIDIAccess) { status("הדפדפן הזה לא תומך ב-MIDI. נסו Chrome או Edge."); return; }
+    try {
+      const acc = await navigator.requestMIDIAccess();
+      const hook = () => {
+        let n = 0;
+        for (const inp of acc.inputs.values()) {
+          n++;
+          inp.onmidimessage = (e) => {
+            const [st, m, v] = e.data, cmd = st & 0xf0;
+            if (cmd === 0x90 && v > 0) noteOn(m, v / 127);
+            else if (cmd === 0x80 || (cmd === 0x90 && v === 0)) noteOff(m);
+          };
+        }
+        return n;
+      };
+      const n = hook();
+      if (!midiOn) { acc.onstatechange = hook; midiOn = true; }
+      status(n ? `מחוברות ${n} מקלדות MIDI. מנגנים, ו"⏺ הקלטת נגינה" מקליט.` : "לא נמצאה מקלדת MIDI מחוברת. מחברים אותה (USB) ולוחצים שוב.");
+    } catch (e) {
+      status("אין הרשאה למקלדת MIDI. מאשרים בחלון של הדפדפן ומנסים שוב.");
+    }
+  });
+  async function renderNotes(events, from) {
+    const end = Math.max(...events.map((e) => (e.off === null ? now() : e.off)));
+    const oc = new OfflineAudioContext(2, Math.ceil((end - from + 1.6) * SR), SR);
+    const out = oc.createGain(); out.gain.value = 0.9; out.connect(oc.destination);
+    const inst = $("pnInst").value;
+    for (const e of events) {
+      const t0 = Math.max(0, e.t - from), dur = Math.max(0.12, (e.off === null ? end : e.off) - e.t);
+      voiceNodes(oc, out, inst, e.m, t0, e.vel).off(t0 + dur);
+    }
+    return oc.startRendering();
+  }
+  $("pnRec").addEventListener("click", async () => {
+    const btn = $("pnRec");
+    if (pnRecording) {
+      pnRecording = false;
+      halt();
+      for (const m of [...pnLive.keys()]) noteOff(m);
+      recSkip = null;
+      btn.classList.remove("on"); btn.textContent = "⏺ הקלטת נגינה";
+      if (!pnEvents.length) { status("לא נוגן שום צליל."); return; }
+      status("בונה את הנגינה...");
+      const buf = await renderNotes(pnEvents, pnFrom);
+      const added = addTrack(buf, `נגינה ${++recCount}`, { start: pnFrom });
+      if (retakeOf) takeJoin(added); else status("הנגינה נוספה כערוץ חדש.");
+      return;
+    }
+    const c = audio();
+    pnEvents = [];
+    pnFrom = playing ? now() : pos;
+    const beat = 60 / bpm(), count = $("mzCount").checked ? 4 * beat : 0;
+    const when = c.currentTime + 0.15 + count;
+    if (count) for (let i = 0; i < 4; i++) click(c, masterIn, when - count + i * beat, i === 0);
+    recSkip = retakeOf;
+    play(pnFrom, when - c.currentTime);
+    pnRecording = true;
+    btn.classList.add("on"); btn.textContent = "⏹ סיום נגינה";
+    status(count ? "סופרים 4 פעימות... ואז מנגנים." : "מקליט נגינה...");
+  });
+
+  // ---------- ייצוא כל ערוץ בנפרד (ZIP) ----------
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(b) { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+  function zip(files) { // קובץ ZIP בלי דחיסה (השמע ממילא דחוס או גדול)
+    const enc = new TextEncoder(), parts = [], central = [];
+    let off = 0;
+    for (const f of files) {
+      const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(12, 0x21, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true); lh.setUint16(26, name.length, true);
+      parts.push(lh.buffer, name, f.data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(14, 0x21, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, size, true); ch.setUint32(24, size, true); ch.setUint16(28, name.length, true); ch.setUint32(42, off, true);
+      central.push(ch.buffer, name);
+      off += 30 + name.length + size;
+    }
+    const cdSize = central.reduce((s2, p) => s2 + (p.byteLength === undefined ? p.length : p.byteLength), 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...central, end.buffer], { type: "application/zip" });
+  }
+  $("mzStems").addEventListener("click", async () => {
+    const list = tracks.filter((t) => !t.mute && len(t) > 0), end = songEnd(), fmt2 = $("mzStemFmt").value;
+    if (!list.length) { status("אין ערוצים לייצוא."); return; }
+    if (fmt2 === "wav" && list.length * end * SR * 4 > 400e6) { status("הקבצים יהיו גדולים מדי ב-WAV (מעל 400MB). בחרו MP3, או קצרו את השיר."); return; }
+    const btn = $("mzStems");
+    btn.disabled = true;
+    try {
+      const files = [];
+      for (let i = 0; i < list.length; i++) {
+        const t = list[i];
+        status(`מכין ערוץ ${i + 1} מתוך ${list.length}: ${t.name}...`);
+        await pause();
+        const oc = new OfflineAudioContext(2, Math.ceil((end + 0.5) * SR), SR);
+        schedule(oc, chain(oc), 0, 0, t);
+        const buf = await oc.startRendering();
+        const blob = fmt2 === "mp3" ? await mp3(buf) : wav(buf);
+        files.push({ name: `${String(i + 1).padStart(2, "0")} ${t.name.replace(/[\\/:*?"<>|]+/g, "_")}.${fmt2}`, data: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      save(zip(files), `${$("mzProjName").value.trim() || "השיר שלי"} - ערוצים.zip`);
+      status(`נשמר קובץ ZIP עם ${files.length} ערוצים (בתיקיית ההורדות).`);
+    } catch (e) {
+      status(`הייצוא נכשל: ${e.message || e}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- קישור להאזנה (אתר בלבד) ----------
+  if ($("mzShare")) $("mzShare").addEventListener("click", async () => {
+    const btn = $("mzShare");
+    btn.disabled = true;
+    try {
+      status("מחבר את השיר...");
+      const f = await mixMp3();
+      if (f.size > 12 * 1024 * 1024) throw new Error("השיר גדול מדי לשיתוף (עד 12MB, בערך 6 דקות)");
+      const fd = new FormData();
+      fd.append("file", f, "song.mp3");
+      fd.append("name", $("mzProjName").value.trim() || "השיר שלי");
+      status("יוצר קישור...");
+      const res = await fetch(root.dataset.share, { method: "POST", headers: { "X-CSRFToken": csrf() }, body: fd });
+      const js = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(js.error || "יצירת הקישור נכשלה");
+      const box = $("mzShareUrl");
+      box.value = js.url; box.hidden = false; box.select();
+      let copied = false;
+      try { await navigator.clipboard.writeText(js.url); copied = true; } catch (e) { /* בלי הרשאת לוח */ }
+      status(`✔ הקישור מוכן${copied ? " והועתק" : ""}. כל מי שיש לו אותו יכול להאזין (${js.days} ימים).`);
+    } catch (e) {
+      status(`קישור: ${e.message || e}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ---------- הקלטה דרך הטלפון ----------
   const phExt = () => $("mzPhExt").value.trim();
   async function phoneList() {
@@ -1276,7 +1615,7 @@
   // "שמירה לקובץ" אורזת את כל הפרויקט לקובץ אחד, כדי להעביר למחשב אחר או לגבות.
   function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   const TRACK_KEYS = ["name", "start", "vol", "pan", "mute", "solo", "reverb", "echo", "fadeIn", "fadeOut", "trimS", "trimE", "bufId",
-    "eqLow", "eqMid", "eqHigh", "filter", "drive", "tremolo", "comp", "chorus"];
+    "eqLow", "eqMid", "eqHigh", "filter", "drive", "tremolo", "comp", "chorus", "group", "auto"];
   const SETTINGS = ["mzMaster", "mzLatency", "mzClick", "mzCount", "bmBpm", "bmBars", "bmPreset", "bmInst", "bmBass", "bmChords",
     "bmKit", "bmStyle", "bmFill", "mzLyrics", "mzLoop", "mzLinePath", "mzPhExt"];
   let projId = null;
@@ -1316,7 +1655,7 @@
     halt();
     for (const t of tracks.splice(0)) t.el.remove();
     $("mzEmpty").hidden = false;
-    pos = 0; recCount = 0; zoom = 1; viewStart = 0;
+    pos = 0; recCount = 0; zoom = 1; viewStart = 0; retakeOf = null;
     tick();
   }
 
@@ -1460,6 +1799,7 @@
     } finally {
       loading = false;
     }
+    applyGroups();
     redraw();
   }
 
@@ -1815,6 +2155,22 @@
     "#mzAiTopic": "כמה מילים על נושא השיר, למי הוא, ומה חשוב שיהיה בו",
     "#mzAiStyle": "הסגנון של המילים",
     "#mzAiGo": "כותב מילים לשיר בעזרת Gemini (צריך מפתח Gemini חינמי בחיבורי ספקים)",
+    "#mzRecSys": "מקליט את השמע של המחשב עצמו (שיר שמתנגן, אתר). באתר בוחרים כרטיסייה ומסמנים \"שתף שמע\"; בתוכנה נקלט כל השמע",
+    "#mzStems": "שומר כל ערוץ כקובץ נפרד בתוך קובץ ZIP, להמשך עבודה בתוכנה אחרת",
+    "#mzStemFmt": "WAV באיכות מלאה (גדול), או MP3 קטן",
+    "#mzShare": "יוצר קישור שמי שמקבל אותו יכול להאזין לשיר בלי להתחבר (נשמר 30 יום)",
+    "#mzShareUrl": "הקישור להאזנה - אפשר להעתיק ולשלוח",
+    "#pnInst": "הכלי שמנגן את הצלילים",
+    "#pnOctDn": "מוריד את המקלדת אוקטבה אחת",
+    "#pnOctUp": "מעלה את המקלדת אוקטבה אחת",
+    "#pnMidi": "מחבר מקלדת נגינה (USB) כדי לנגן עליה",
+    "#pnRec": "מקליט את מה שמנגנים כערוץ, בזמן שהמנגינה מתנגנת",
+    "#pnKeys": "קלידים: לוחצים עם העכבר או האצבע, או במקלדת המחשב",
+    "[data-a=retake]": "הקלטה חוזרת של אותו ערוץ: ההקלטה הבאה נכנסת כניסיון נוסף, ובוחרים איזה נשמע",
+    ".mz-dip": "כמה להנמיך את הערוץ בקטע המסומן",
+    "[data-a=dip]": "מנמיך את הערוץ בקטע המסומן (למשל כשמדברים מעל המנגינה)",
+    "[data-a=undip]": "מבטל את כל ההנמכות בערוץ",
+    ".mz-take": "בוחר איזה ניסיון של הערוץ נשמע",
     "#mzExport": "שומר את השיר המחובר כקובץ WAV באיכות מלאה",
     "#mzExportMp3": "שומר את השיר המחובר כקובץ MP3 קטן, נוח לשליחה",
     "#mzFile": "מוסיף שיר, מנגנון, הקלטה או סרטון מהמחשב",
