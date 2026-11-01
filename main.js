@@ -126,13 +126,24 @@ const run = js => { if (unlocked && win && !win.isDestroyed()) win.webContents.e
 const act = (c, a) => run(`window.Studio&&Studio.ui&&Studio.ui.act&&Studio.ui.act(${JSON.stringify(c)},${JSON.stringify(a || "")})`);
 const sceneN = n => run(`window.Studio&&Studio.ui.act("scene",(Studio.scenes.filter(s=>!s.brb)[${n - 1}]||{}).id)`);
 
-function load() { if (!win) return; if (cfg.pass && !unlocked) win.loadFile(path.join(__dirname, "lock.html")); else win.loadURL(STUDIO_URL); }
+// אולפן ההקלטות: נפתח ישר מהסמל שלו (‎--music) או בלחיצה כפולה על קובץ פרויקט (‎.mzproj)
+const MUSIC_URL = "app://studio/music.html";
+const launchInfo = argv => ({ music: argv.includes("--music"), file: argv.find(a => /\.mzproj$/i.test(a) && fs.existsSync(a)) || null });
+let startMusic = false, pendingProject = null;
+function useArgs(argv) { const i = launchInfo(argv); if (i.file) pendingProject = i.file; startMusic = i.music || !!i.file; }
+ipcMain.handle("take-project", async e => {
+  if (!studioFrame(e) || !pendingProject) return null;
+  const file = pendingProject; pendingProject = null;
+  try { return { name: path.basename(file), data: await fs.promises.readFile(file) }; } catch (er) { return null; }
+});
+function load() { if (!win) return; if (cfg.pass && !unlocked) win.loadFile(path.join(__dirname, "lock.html")); else { win.loadURL(startMusic ? MUSIC_URL : STUDIO_URL); startMusic = false; } }
 function lockNow() { if (!cfg.pass) { dialog.showMessageBox(win, { type: "info", message: "לא הוגדרה סיסמה", detail: "אפשר להגדיר מהתפריט: אולפן ← סיסמה לתוכנה." }); return; } unlocked = false; globalShortcut.unregisterAll(); load(); }
 
 function createWindow() {
   win = new BrowserWindow({ width: 1500, height: 950, minWidth: 1000, minHeight: 650, backgroundColor: "#0e1117", title: "אולפן שידור",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, spellcheck: false } });
   win.on("closed", () => { win = null; });
+  watchPage(win, "אולפן");
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
     if (frameName === "studio_out" || /\/output\.html$/.test(url)) {
       const ds = screen.getAllDisplays(), main = screen.getDisplayMatching(win.getBounds()), ext = ds.find(d => d.id !== main.id) || main, b = ext.bounds;
@@ -190,7 +201,31 @@ function passWindow() {
 }
 
 /* עדכון התוכנה מבפנים: בודקת בכל הפעלה, מורידה ברקע עם חלון התקדמות (אחוזים, מהירות וגודל), ושואלת אם להפעיל מחדש ולהתקין */
-let updater = null, updWin = null, updState = null, manual = false;
+// קובץ לוג אוטומטי (בתיקיית הנתונים של התוכנה): הפעלות, עדכונים, שגיאות וקריסות - כדי להבין תקלה בדיעבד.
+// עד 2MB; כשמתמלא, הקודם נשמר כ-studio.old.log. פותחים מהתפריט: עזרה ← פתיחת קובץ הלוג.
+const LOG_FILE = () => path.join(app.getPath("userData"), "logs", "studio.log");
+function log(level, ...parts) {
+  try {
+    const file = LOG_FILE();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try { if (fs.statSync(file).size > 2 * 1024 * 1024) fs.renameSync(file, file.replace(/\.log$/, ".old.log")); } catch (e) { /* קובץ חדש */ }
+    const text = parts.map(p => (p instanceof Error ? p.stack || p.message : typeof p === "string" ? p : JSON.stringify(p))).join(" ");
+    fs.appendFileSync(file, `${new Date().toISOString()} [${level}] ${text.slice(0, 4000)}\n`);
+  } catch (e) { /* בלי לוג - לא מפילים את התוכנה */ }
+}
+const logger = { info: m => log("info", m), warn: m => log("warn", m), error: m => log("error", m), debug: () => {} };
+process.on("uncaughtException", e => log("error", "קריסה בתוכנה:", e));
+process.on("unhandledRejection", e => log("error", "שגיאה שלא טופלה:", e instanceof Error ? e : String(e)));
+function watchPage(w, name) { // שגיאות בדף, קריסה של הדף, ודף שנתקע
+  w.webContents.on("console-message", (_e, level, message, line, source) => { if (level >= 3) log("page-error", name, message, `${source}:${line}`); });
+  w.webContents.on("render-process-gone", (_e, d) => log("error", name, "הדף קרס:", d.reason, d.exitCode));
+  w.on("unresponsive", () => log("warn", name, "הדף לא מגיב"));
+  w.on("responsive", () => log("info", name, "הדף חזר להגיב"));
+  w.webContents.on("did-fail-load", (_e, code, desc, url) => log("error", name, "טעינה נכשלה:", code, desc, url));
+}
+
+let updater = null, updWin = null, updState = null, manual = false, finishTimer = null;
+const SETUP_URL = "https://github.com/MOTEL-hue/studio-desktop/releases/latest/download/StudioSetup.exe";
 const upd = state => {
   updState = Object.assign({}, updState || {}, state);
   if (!updWin || updWin.isDestroyed()) {
@@ -204,12 +239,19 @@ function initUpdater() {
   if (!app.isPackaged && !process.env.STUDIO_FAKE_UPDATE) return;
   if (process.env.STUDIO_FAKE_UPDATE) { simulate(); return; }
   try {
-    updater = require("electron-updater").autoUpdater; updater.autoDownload = true;
+    updater = require("electron-updater").autoUpdater; updater.autoDownload = true; updater.logger = logger;
+    // הורדה מלאה של הקובץ במקום "הורדה חלקית" (רק מה שהשתנה): החלקית נתקעה אצלנו ב-100% זמן רב בזמן הרכבת הקובץ
+    updater.disableDifferentialDownload = true;
     updater.on("update-available", info => upd({ phase: "download", version: info.version, percent: 0 }));
-    updater.on("download-progress", p => upd({ phase: "download", percent: p.percent, speed: p.bytesPerSecond, done: p.transferred, total: p.total }));
-    updater.on("update-downloaded", info => upd({ phase: "ready", version: info.version, percent: 100 }));
+    updater.on("download-progress", p => {
+      upd({ phase: "download", percent: p.percent, speed: p.bytesPerSecond, done: p.transferred, total: p.total });
+      // הגיע ל-100% ולא הסתיים תוך דקה וחצי (למשל אנטי-וירוס שבודק את הקובץ)? מציעים להוריד ידנית במקום לחכות
+      if (p.percent >= 99.9 && !finishTimer) finishTimer = setTimeout(() => { if (updState && updState.phase === "download") upd({ phase: "slow" }); }, 90 * 1000);
+    });
+    updater.on("update-downloaded", info => { clearTimeout(finishTimer); upd({ phase: "ready", version: info.version, percent: 100 }); });
     updater.on("update-not-available", () => { if (manual) { manual = false; dialog.showMessageBox(win, { type: "info", message: "התוכנה מעודכנת", detail: "גרסה " + app.getVersion() }); } });
-    updater.on("error", () => { if (manual) { manual = false; dialog.showMessageBox(win, { type: "warning", message: "לא הצלחנו לבדוק עדכון", detail: "בדקו שיש חיבור לאינטרנט." }); } else if (updState && updState.phase === "download") upd({ phase: "error" }); });
+    updater.on("error", e => {
+      log("error", "עדכון:", e); if (manual) { manual = false; dialog.showMessageBox(win, { type: "warning", message: "לא הצלחנו לבדוק עדכון", detail: "בדקו שיש חיבור לאינטרנט." }); } else if (updState && updState.phase === "download") upd({ phase: "error" }); });
     updater.checkForUpdates().catch(() => {});
   } catch (e) { /* בלי עדכון */ }
 }
@@ -222,6 +264,7 @@ ipcMain.on("upd-action", (e, a) => {
   if (!e.senderFrame || !e.senderFrame.url.startsWith("file:")) return;
   if (a === "install" && updater) updater.quitAndInstall(true, true);
   else if (a === "later" && updWin) updWin.close();
+  else if (a === "manual") shell.openExternal(SETUP_URL);
 });
 function simulate() { // בדיקה בלבד: מדמה הורדה (STUDIO_FAKE_UPDATE=1)
   let p = 0; upd({ phase: "download", version: "9.9.9", percent: 0, total: 96e6 });
@@ -243,7 +286,7 @@ function buildMenu() {
       { label: "מקשי Ctrl+Alt (חץ ימינה/שמאלה = הבאה/קודמת, 1-9 = סצנות)", type: "checkbox", checked: cfg.globalKeys, click: m => { cfg.globalKeys = m.checked; saveCfg(); registerKeys(); } },
       { label: "מקשי מספרים כלליים (נאמפד שולט גם מחוץ לאולפן)", type: "checkbox", checked: cfg.numpad, click: m => { cfg.numpad = m.checked; saveCfg(); registerKeys(); } } ] },
     { label: "תצוגה", submenu: [{ role: "zoomIn" }, { role: "zoomOut" }, { role: "resetZoom" }, { type: "separator" }, { role: "toggleDevTools", label: "כלי פיתוח" }] },
-    { label: "עזרה", submenu: [{ label: "מדריך למתחילים", click: () => run(`window.Studio&&Studio.ui.showTab("help")`) }, { label: "בדיקת עדכון עכשיו", click: () => manualCheck() }, { label: `גרסה ${app.getVersion()}`, enabled: false }] },
+    { label: "עזרה", submenu: [{ label: "מדריך למתחילים", click: () => run(`window.Studio&&Studio.ui.showTab("help")`) }, { label: "פתיחת קובץ הלוג (תקלות ועדכונים)", click: () => { log("info", "נפתח קובץ הלוג"); shell.openPath(LOG_FILE()); } }, { label: "הצגת תיקיית הלוג", click: () => shell.showItemInFolder(LOG_FILE()) }, { label: "בדיקת עדכון עכשיו", click: () => manualCheck() }, { label: `גרסה ${app.getVersion()}`, enabled: false }] },
   ]));
 }
 
@@ -259,9 +302,16 @@ ipcMain.handle("set-pass", (e, { old, next }) => {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+  app.on("second-instance", (_e, argv) => {
+    useArgs(argv);
+    if (win) { if (win.isMinimized()) win.restore(); win.focus(); if (startMusic && unlocked) load(); }
+  });
+  useArgs(process.argv);
   app.whenReady().then(() => {
+    log("info", `הפעלה: גרסה ${app.getVersion()}, ${process.platform} ${require("os").release()}, Electron ${process.versions.electron}`, startMusic ? "(אולפן הקלטות)" : "");
     loadCfg(); unlocked = !cfg.pass; setupSession(); buildMenu(); createWindow(); registerKeys(); initUpdater();
+    // בשורת המשימות של ווינדוס (לחיצה ימנית על הסמל): כניסה ישירה לאולפן ההקלטות
+    if (process.platform === "win32") app.setUserTasks([{ program: process.execPath, arguments: "--music", iconPath: process.execPath, iconIndex: 0, title: "אולפן הקלטות", description: "פתיחה ישירה של אולפן ההקלטות" }]);
     app.on("activate", () => { if (!win) createWindow(); });
   });
   app.on("will-quit", () => globalShortcut.unregisterAll());

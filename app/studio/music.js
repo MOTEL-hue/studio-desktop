@@ -1173,6 +1173,76 @@
       btn.disabled = false;
     }
   });
+  // ---------- הקלטה דרך הטלפון ----------
+  const phExt = () => $("mzPhExt").value.trim();
+  async function phoneList() {
+    const ext = phExt();
+    if (!/^[0-9]+(\/[0-9]+)*$/.test(ext)) { status("כותבים את מספר שלוחת ההקלטות (או יוצרים אחת)."); return; }
+    status("קורא את ההקלטות מהקו...");
+    const res = await fetch(`${root.dataset.phoneList}?path=${encodeURIComponent(ext)}`, { credentials: "same-origin" });
+    const js = await res.json().catch(() => ({}));
+    if (!res.ok) { status(`הטלפון: ${js.error || "לא הצלחתי לקרוא"}`); return; }
+    const box = $("mzPhList");
+    box.innerHTML = "";
+    if (!js.files.length) { status("אין עדיין הקלטות בשלוחה. מתקשרים, מקישים את השלוחה ושרים."); return; }
+    for (const f of js.files) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn btn-secondary";
+      b.textContent = `➕ ${f.when || f.name}${f.duration ? ` (${f.duration})` : ""}`;
+      b.title = "מוסיף את ההקלטה הזו כערוץ";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        status("מוריד את ההקלטה...");
+        try {
+          const r = await fetch(`${root.dataset.phoneGet}?path=${encodeURIComponent(ext)}&name=${encodeURIComponent(f.name)}`, { credentials: "same-origin" });
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "ההורדה נכשלה");
+          addTrack(await decode(await r.arrayBuffer()), `טלפון ${f.when || f.name}`, { start: playing ? now() : pos });
+          status("ההקלטה מהטלפון נוספה כערוץ (במקום הסמן). אפשר להזיז אותה בגרירה.");
+        } catch (e) {
+          status(`הטלפון: ${e.message || e}`);
+          b.disabled = false;
+        }
+      });
+      box.appendChild(b);
+    }
+    status(`נמצאו ${js.files.length} הקלטות. לוחצים על הקלטה כדי להוסיף אותה.`);
+  }
+  if ($("mzPhLoad")) $("mzPhLoad").addEventListener("click", () => phoneList().catch((e) => status(`הטלפון: ${e.message || e}`)));
+  if ($("mzPhMake")) $("mzPhMake").addEventListener("click", async () => {
+    const num = phExt() || prompt("איזה מספר לתת לשלוחת ההקלטה? (מספר שעוד לא תפוס בקו, למשל 8)", "8");
+    if (!num || !/^[0-9]{1,6}$/.test(num.trim())) { status("מספר שלוחה הוא ספרות בלבד, למשל 8."); return; }
+    status("יוצר את השלוחה בקו...");
+    const fd = new FormData(); fd.append("number", num.trim());
+    const res = await fetch(root.dataset.phoneMake, { method: "POST", headers: { "X-CSRFToken": csrf() }, body: fd });
+    const js = await res.json().catch(() => ({}));
+    if (!res.ok) { status(`הטלפון: ${js.error || "לא הצלחתי ליצור"}`); return; }
+    $("mzPhExt").value = js.path; touch();
+    status(`✔ שלוחה ${js.path} מוכנה. מתקשרים לקו, מקישים ${js.path}, שרים אחרי הצפצוף ומנתקים.`);
+  });
+
+  // ---------- מילים בבינה מלאכותית ----------
+  if ($("mzAiGo")) $("mzAiGo").addEventListener("click", async () => {
+    const topic = $("mzAiTopic").value.trim();
+    if (!topic) { status("כותבים על מה השיר, ואז לוחצים."); return; }
+    if ($("mzLyrics").value.trim() && !confirm("להחליף את המילים שכבר כתובות?")) return;
+    const btn = $("mzAiGo");
+    btn.disabled = true;
+    status("הבינה המלאכותית כותבת מילים... (עד חצי דקה)");
+    try {
+      const fd = new FormData(); fd.append("topic", topic); fd.append("style", $("mzAiStyle").value);
+      const res = await fetch(root.dataset.lyricsAi, { method: "POST", headers: { "X-CSRFToken": csrf() }, body: fd });
+      const js = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(js.error || "לא התקבלו מילים");
+      $("mzLyrics").value = js.text;
+      lyrTimes = []; updateHead(); touch();
+      status("✔ המילים מוכנות. אפשר לשנות אותן כרצונכם, ואז לתזמן את השורות.");
+    } catch (e) {
+      status(`מילים: ${e.message || e}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   $("mzExport").addEventListener("click", () => exportSong("wav"));
   $("mzExportMp3").addEventListener("click", () => exportSong("mp3"));
 
@@ -1208,7 +1278,7 @@
   const TRACK_KEYS = ["name", "start", "vol", "pan", "mute", "solo", "reverb", "echo", "fadeIn", "fadeOut", "trimS", "trimE", "bufId",
     "eqLow", "eqMid", "eqHigh", "filter", "drive", "tremolo", "comp", "chorus"];
   const SETTINGS = ["mzMaster", "mzLatency", "mzClick", "mzCount", "bmBpm", "bmBars", "bmPreset", "bmInst", "bmBass", "bmChords",
-    "bmKit", "bmStyle", "bmFill", "mzLyrics", "mzLoop", "mzLinePath"];
+    "bmKit", "bmStyle", "bmFill", "mzLyrics", "mzLoop", "mzLinePath", "mzPhExt"];
   let projId = null;
   let savedBufs = new Set();
   let saveTimer = null;
@@ -1475,10 +1545,12 @@
   $("mzProjFile").addEventListener("change", async (e) => {
     const f = e.target.files[0];
     e.target.value = "";
-    if (!f) return;
+    if (f) await importProject(await f.arrayBuffer(), f.name);
+  });
+  // פתיחת קובץ פרויקט: מהכפתור, או בתוכנה למחשב - בלחיצה כפולה על קובץ ‎.mzproj
+  async function importProject(ab, fileName) {
     status("פותח את קובץ הפרויקט...");
     try {
-      let ab = await f.arrayBuffer();
       const b0 = new Uint8Array(ab, 0, 2);
       if (b0[0] === 0x1f && b0[1] === 0x8b) ab = await (await gz(new Blob([ab]), "d")).arrayBuffer();
       if (new TextDecoder().decode(new Uint8Array(ab, 0, 6)) !== MAGIC) throw new Error("זה לא קובץ פרויקט של האולפן");
@@ -1500,7 +1572,7 @@
       }
       projId = newId();
       savedBufs = new Set();
-      $("mzProjName").value = meta.name || f.name.replace(/\.[^.]+$/, "");
+      $("mzProjName").value = meta.name || fileName.replace(/\.[^.]+$/, "");
       restore(meta, buffers);
       resetHistory();
       touch();
@@ -1508,7 +1580,7 @@
     } catch (err) {
       status(`לא הצלחתי לפתוח: ${err.message || err}`);
     }
-  });
+  }
 
   root.addEventListener("input", (e) => { if (!e.target.closest(".mz-tools") && !["mzYt", "mzSeek", "mzScroll"].includes(e.target.id)) touch(); });
   root.addEventListener("change", (e) => { if (e.target.type !== "file" && !e.target.closest(".mz-tools")) touch(); });
@@ -1737,6 +1809,12 @@
     "#bmKit": "סוג צליל התופים: רגיל, אלקטרוני או עדין",
     "#bmStyle": "איך מנוגנים האקורדים: מכות רגילות, או צליל אחרי צליל (ארפג'יו)",
     "#bmFill": "מעבר תופים קצר בסוף כל ארבע תיבות, כמו מתופף אמיתי",
+    "#mzPhExt": "מספר השלוחה בקו שבה נשמרות ההקלטות מהטלפון",
+    "#mzPhLoad": "מציג את ההקלטות האחרונות מהשלוחה, ולחיצה על הקלטה מוסיפה אותה כערוץ",
+    "#mzPhMake": "יוצר בקו שלוחה חדשה להקלטה: מתקשרים, מקישים את המספר ושרים",
+    "#mzAiTopic": "כמה מילים על נושא השיר, למי הוא, ומה חשוב שיהיה בו",
+    "#mzAiStyle": "הסגנון של המילים",
+    "#mzAiGo": "כותב מילים לשיר בעזרת Gemini (צריך מפתח Gemini חינמי בחיבורי ספקים)",
     "#mzExport": "שומר את השיר המחובר כקובץ WAV באיכות מלאה",
     "#mzExportMp3": "שומר את השיר המחובר כקובץ MP3 קטן, נוח לשליחה",
     "#mzFile": "מוסיף שיר, מנגנון, הקלטה או סרטון מהמחשב",
@@ -1860,6 +1938,9 @@
   // פתיחה: חוזרים לפרויקט האחרון שעבדו עליו במחשב הזה
   (async () => {
     if (/[?&]demo=1/.test(location.search)) { await demoMode(); return; }
+    const desk = window.studioDesktop;
+    const opened = desk && desk.takeProject ? await desk.takeProject().catch(() => null) : null;
+    if (opened && opened.data) { startNew(); await importProject(new Uint8Array(opened.data).buffer, opened.name || "פרויקט"); return; }
     let last = null;
     try { last = localStorage.getItem("mz-project"); } catch (e) { /* בלי זיכרון בדפדפן */ }
     try {
