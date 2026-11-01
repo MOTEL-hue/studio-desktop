@@ -61,3 +61,24 @@
 #mzLyrNow{font-size:1.6rem;font-weight:800;min-height:2rem}
 #mzLyrNext{font-size:1rem;opacity:.65;min-height:1.3rem}
 #mzLyrics{width:100%;box-sizing:border-box;font:inherit;margin:.5rem 0}
+.mz-phone{margin-top:.6rem}.mz-phone summary{cursor:pointer;font-weight:700}
+.mz-phlist{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem}
+.mz-grow{flex:1 1 14rem}.mz-grow input{width:100%;box-sizing:border-box}
+/* נייד: הכול נכנס לרוחב המסך, כפתורים גדולים ללחיצה באצבע, והסרגל לא תופס את כל המסך */
+@media (max-width:700px){
+  .mz-transport{position:static}
+  .mz-transport .btn,.mz-tools .btn,.mz-head .btn{min-height:2.4rem}
+  #mzSeek,#mzScroll{flex-basis:100%}
+  .mz-add input[type=url]{min-width:0;width:100%}
+  .mz-add .mz-inline{flex-wrap:wrap;width:100%}
+  .mz-ctl label{display:flex;justify-content:space-between;align-items:center;flex:1 1 100%}
+  .mz-ctl input[type=range]{flex:1;width:auto;margin-inline-start:.5rem}
+  .mz-proj #mzProjName,.mz-proj #mzProjects{min-width:0;max-width:100%;width:100%}
+  .mz-proj .mz-inline,.mz-marks{flex-wrap:wrap}
+  .mz-meter-track{width:6rem}
+  .bm-grid{gap:2px}.bm-grid button{height:1.9rem}
+  .mz-wave{height:56px}
+  #mzLyrNow{font-size:1.3rem}
+  .mz-standalone .mz-main{padding:.5rem}
+}
+h1 .btn{font-size:1rem;font-weight:600;vertical-align:middle;margin-inline-start:.4rem}

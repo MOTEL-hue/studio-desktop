@@ -5,16 +5,16 @@
 .row{display:flex;gap:10px;margin-top:16px;justify-content:center}button{padding:10px 18px;border:0;border-radius:8px;font-size:15px;cursor:pointer;color:#fff;background:#2d3748}button.go{background:#22a45d}</style></head>
 <body><h1 id="t">מוריד עדכון...</h1><p id="d">אפשר להמשיך לעבוד. ההתקנה תתבצע כשתבחרו.</p>
 <div class="bar"><i id="b"></i></div><div class="pct" id="pct">0%</div><div class="sub" id="sub"></div>
-<div class="row"><button class="go" id="inst" style="display:none">הפעלה מחדש והתקנה</button><button id="lat">הסתר</button></div>
+<div class="row"><button class="go" id="inst" style="display:none">הפעלה מחדש והתקנה</button><button id="man" style="display:none">הורדה ידנית</button><button id="lat">הסתר</button></div>
 <script>
 const $=id=>document.getElementById(id),mb=n=>(n/1e6).toFixed(1),A=window.studioDesktop;
 A.onUpdate(s=>{
   const pc=Math.max(0,Math.min(100,s.percent||0));$('b').style.width=pc+'%';$('pct').textContent=Math.round(pc)+'%';
   if(s.phase==='ready'){$('t').textContent='העדכון מוכן'+(s.version?' (גרסה '+s.version+')':'');$('d').textContent='התוכנה תיסגר ותיפתח מחדש. ההגדרות והסצנות נשמרות.';$('inst').style.display='';$('lat').textContent='אחר כך';$('sub').textContent='';}
-  else if(s.phase==='error'){$('t').textContent='ההורדה נכשלה';$('d').textContent='נסו שוב בהפעלה הבאה, או בדקו חיבור לאינטרנט.';}
+  else if(s.phase==='error'||s.phase==='slow'){$('t').textContent=s.phase==='slow'?'ההתקנה מתעכבת':'ההורדה נכשלה';$('d').textContent=s.phase==='slow'?'כנראה תוכנת אנטי-וירוס בודקת את הקובץ. אפשר להמשיך לעבוד ולחכות, או להוריד את הגרסה החדשה ידנית ולהתקין.':'נסו שוב בהפעלה הבאה, או הורידו ידנית.';$('sub').textContent='';$('man').style.display='';}
   else{const sp=s.speed?' · '+mb(s.speed)+' מ"ב לשנייה':'',known=s.total&&(s.done||0)<=s.total*1.02;
     $('t').textContent=(pc>=100?'מסיים את ההורדה':'מוריד עדכון'+(s.version?' (גרסה '+s.version+')':''))+'...';
-    $('sub').textContent=pc>=100?'מכין את ההתקנה...':known?mb(s.done||0)+' מתוך '+mb(s.total)+' מ"ב'+sp:(s.done?'הורדו '+mb(s.done)+' מ"ב'+sp:'');}
+    $('sub').textContent=pc>=100?'בודק את הקובץ שהורד (עד דקה)...':known?mb(s.done||0)+' מתוך '+mb(s.total)+' מ"ב'+sp:(s.done?'הורדו '+mb(s.done)+' מ"ב'+sp:'');}
 });
-$('inst').onclick=()=>A.updateAction('install');$('lat').onclick=()=>A.updateAction('later');
+$('inst').onclick=()=>A.updateAction('install');$('lat').onclick=()=>A.updateAction('later');$('man').onclick=()=>A.updateAction('manual');
 </script></body></html>

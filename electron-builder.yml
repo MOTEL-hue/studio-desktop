@@ -24,6 +24,13 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: אולפן שידור
   runAfterFinish: true
+  include: buildResources/installer.nsh
+# לחיצה כפולה על קובץ פרויקט של אולפן ההקלטות פותחת אותו בתוכנה
+fileAssociations:
+  - ext: mzproj
+    name: StudioMusicProject
+    description: פרויקט אולפן הקלטות
+    role: Editor
 publish:
   - provider: github
     owner: MOTEL-hue

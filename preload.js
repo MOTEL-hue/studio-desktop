@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("studioDesktop", {
   streamChunk: b => ipcRenderer.send("stream-chunk", b),
   streamStop: () => ipcRenderer.invoke("stream-stop"),
   onStreamStatus: cb => ipcRenderer.on("stream-status", (_e, s) => cb(s)),
+  takeProject: () => ipcRenderer.invoke("take-project"),
   unlock: p => ipcRenderer.invoke("unlock", p),
   setPass: (old, next) => ipcRenderer.invoke("set-pass", { old, next }),
   onUpdate: cb => ipcRenderer.on("upd", (_e, s) => cb(s)),
