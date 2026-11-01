@@ -186,6 +186,8 @@ const KEYS = [["CommandOrControl+Alt+Right", "next"], ["CommandOrControl+Alt+Lef
 function registerKeys() {
   globalShortcut.unregisterAll(); if (!unlocked) return;
   const reg = (k, f) => { try { globalShortcut.register(k, f); } catch (e) { /* תפוס */ } };
+  // אולפן ההקלטות: מקש כללי להתחלה ועצירה של הקלטה, גם כשחלון אחר בחזית
+  if (cfg.globalKeys) reg("CommandOrControl+Alt+R", () => run(`window.__mzToggleRec&&window.__mzToggleRec()`));
   if (cfg.globalKeys) { KEYS.forEach(([k, c]) => reg(k, () => act(c))); for (let i = 1; i <= 9; i++) reg(`CommandOrControl+Alt+${i}`, () => sceneN(i)); }
   if (cfg.numpad) {
     Object.entries({ num0: ["brb"], numadd: ["next"], numsub: ["prev"], numdiv: ["prog", "next"], nummult: ["cut"] }).forEach(([k, [c, a]]) => reg(k, () => act(c, a)));

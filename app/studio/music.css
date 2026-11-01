@@ -82,3 +82,13 @@
   .mz-standalone .mz-main{padding:.5rem}
 }
 h1 .btn{font-size:1rem;font-weight:600;vertical-align:middle;margin-inline-start:.4rem}
+.mz-badge{font-size:.7rem;font-weight:600;opacity:.8;margin-inline-start:.3rem;padding:0 .3rem;border-radius:4px;background:rgba(0,0,0,.12)}
+.mz-shareurl{min-width:16rem}.mz-shareurl[hidden]{display:none!important}
+.mz-desk[hidden]{display:none!important}
+.mz-track[hidden]{display:none!important}
+.mz-take{max-width:14rem}.mz-take[hidden]{display:none!important}
+.pn-keys{display:flex;user-select:none;touch-action:none;margin:.6rem 0;max-width:100%;overflow-x:auto}
+.pn-w{position:relative;flex:0 0 2.6rem;height:9rem;border:1px solid #888;border-radius:0 0 6px 6px;background:#fff;color:#000;padding:0;cursor:pointer}
+.pn-w.on{background:#93c5fd}
+.pn-b{position:absolute;top:0;inset-inline-start:calc(100% - .85rem);width:1.7rem;height:5.4rem;z-index:2;border:1px solid #000;border-radius:0 0 4px 4px;background:#111;padding:0;cursor:pointer}
+.pn-b.on{background:#2563eb}
