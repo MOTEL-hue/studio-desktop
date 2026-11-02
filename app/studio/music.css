@@ -92,3 +92,22 @@ h1 .btn{font-size:1rem;font-weight:600;vertical-align:middle;margin-inline-start
 .pn-w.on{background:#93c5fd}
 .pn-b{position:absolute;top:0;inset-inline-start:calc(100% - .85rem);width:1.7rem;height:5.4rem;z-index:2;border:1px solid #000;border-radius:0 0 4px 4px;background:#111;padding:0;cursor:pointer}
 .pn-b.on{background:#2563eb}
+
+/* מדי שמע */
+.mz-meters{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start}
+.mz-mbox{display:flex;flex-direction:column;gap:.15rem;flex:1 1 16rem;min-width:0}
+.mz-mbox canvas{width:100%;max-width:30rem;height:56px;border-radius:6px;background:var(--surface-2,#f3f4f6)}
+.mz-mlabel{font-size:.78rem;opacity:.75}
+.mz-livebox{flex:2 1 24rem}.mz-livebox canvas{max-width:none}.mz-livebox[hidden]{display:none!important}
+.mz-tmeter{display:inline-block;width:5rem;height:.6rem;border-radius:3px;background:var(--surface-2,#e5e7eb);overflow:hidden;direction:ltr;flex:0 0 auto}
+.mz-tmeter>span{display:block;height:100%;width:0;background:#16a34a}
+/* מצב יום בתוכנה למחשב */
+html[data-theme=light] .mz-standalone{background:#eef1f6;color:#1b2433;--border:#cfd7e3;--surface-2:#e3e8f0}
+html[data-theme=light] .mz-standalone .card{background:#fff}
+html[data-theme=light] .mz-standalone .btn-secondary{background:#eef1f6;color:#1b2433}
+html[data-theme=light] .mz-standalone .help-text{color:#5b6779}
+html[data-theme=light] .mz-standalone input,html[data-theme=light] .mz-standalone select,html[data-theme=light] .mz-standalone textarea{background:#fff;color:#1b2433}
+html[data-theme=light] .mz-standalone .mz-guide .mz-g-tip{color:#8a5a00}
+html[data-theme=light] .mz-standalone .mz-guide .mz-g-warn{color:#b42318}
+.mz-standalone textarea{background:#0b0f15;color:#e6e8eb;border:1px solid var(--border);border-radius:6px}
+@media (max-width:700px){.mz-mbox{flex-basis:100%}}

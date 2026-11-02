@@ -4,6 +4,7 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>אולפן הקלטות</title>
 <link rel="stylesheet" href="studio/music.css">
+<script>(function(){var t;try{t=localStorage.getItem("vc-theme")}catch(e){}if(t!=="light"&&t!=="dark")t=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body class="mz-standalone">
 <main class="mz-main">
@@ -11,6 +12,7 @@
 <header class="page-head">
   <h1>🎙️ אולפן הקלטות <button type="button" id="mzInstall" class="btn" hidden>📥 התקנה כתוכנה</button>
     <a href="#mzGuide" id="mzGuideBtn" class="btn btn-secondary">📘 מדריך מלא</a>
+    <button type="button" id="mzTheme" class="btn btn-secondary mz-desk">☀️ מצב יום</button>
     </h1>
   <p class="help-text">מקליטים שירה על מנגינה, בונים מנגנון (תופים ואקורדים), מורידים את השירה משיר קיים כדי לקבל מנגינה בלבד,
     ומחברים הכול לשיר אחד. הכול קורה במחשב שלכם, בדפדפן (מומלץ Chrome או Edge). העבודה נשמרת לבד במחשב הזה, ואפשר לשמור אותה גם לקובץ.</p>
@@ -69,6 +71,12 @@
   <span class="mz-desk help-text">💻 בתוכנה: <bdi dir="ltr">Ctrl+Alt+R</bdi> מתחיל ועוצר הקלטה גם כשחלון אחר פתוח.</span>
   <span class="help-text">מקש <bdi dir="ltr">F9</bdi> מתחיל ועוצר הקלטה.</span>
   <p class="help-text mz-status" id="mzStatus" role="status"></p>
+</section>
+
+<section class="card mz-meters" id="mzMeters" aria-label="מדי שמע">
+  <div class="mz-mbox"><span class="mz-mlabel">עוצמה (שמאל / ימין)</span><canvas id="mzVu" width="360" height="56"></canvas></div>
+  <div class="mz-mbox"><span class="mz-mlabel">צלילים (נמוכים ← גבוהים)</span><canvas id="mzSpec" width="360" height="56"></canvas></div>
+  <div class="mz-mbox mz-livebox" id="mzLiveBox" hidden><span class="mz-mlabel">הקלטה חיה <b id="mzLiveT"></b></span><canvas id="mzLive" width="600" height="56"></canvas></div>
 </section>
 
 <details class="card" id="mzLyrCard">

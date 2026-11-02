@@ -30,6 +30,7 @@
     const lim = c.createDynamicsCompressor();
     lim.threshold.value = -3; lim.knee.value = 3; lim.ratio.value = 12; lim.attack.value = 0.003; lim.release.value = 0.15;
     g.connect(lim); lim.connect(c.destination);
+    if (c === ctx) tap(c, lim); // מדי השמע: רק בנגן החי, לא בייצוא
     return g;
   }
 
@@ -74,6 +75,7 @@
       fxChain(c, t, src, nodes).connect(g);
       const ag = c.createGain(); // הנמכות בקטעים מסומנים
       g.connect(ag);
+      if (c === ctx) { const an = c.createAnalyser(); an.fftSize = 512; ag.connect(an); t.an = an; } // מד עוצמה של הערוץ
       for (const sg of t.auto || []) {
         const ta = when + sg.a - from, tb = when + sg.b - from;
         if (tb <= when) continue;
@@ -214,6 +216,7 @@
     playing = { nodes, when, from };
     $("mzPlay").textContent = "⏸ השהיה";
     requestAnimationFrame(tick);
+    vuStart();
     return when;
   }
 
@@ -222,6 +225,7 @@
     pos = now();
     for (const n of playing.nodes) { try { n.stop(); } catch (e) { /* כבר נעצר */ } }
     playing = null;
+    for (const t of tracks) t.an = null;
     $("mzPlay").textContent = "▶ ניגון";
   }
 
@@ -339,6 +343,7 @@
   const TRACK_HTML = `
     <div class="mz-head">
       <input class="mz-name" aria-label="שם הערוץ">
+      <span class="mz-tmeter" title="עוצמת הערוץ בזמן ניגון"><span></span></span>
       <button type="button" class="btn btn-secondary" data-a="mute">🔇 השתקה</button>
       <button type="button" class="btn btn-secondary" data-a="solo">🎧 סולו</button>
       <button type="button" class="btn btn-secondary" data-a="del">🗑 מחיקה</button>
@@ -1010,7 +1015,10 @@
     const send = c.createGain(); send.gain.value = 0.2;
     micSrc.connect(micMon); micMon.connect(masterIn); micMon.connect(send); send.connect(verb); verb.connect(masterIn);
     $("mzMeterBox").hidden = false;
+    liveHist = [];
+    $("mzLiveBox").hidden = false;
     requestAnimationFrame(meter);
+    vuStart();
     return micSrc;
   }
   function detachMic() {
@@ -1018,14 +1026,17 @@
     if (micMon) micMon.disconnect();
     micSrc = micAn = micMon = null;
     $("mzMeterBox").hidden = true;
+    $("mzLiveBox").hidden = true;
   }
   const meterData = new Float32Array(1024);
+  let lastMicPk = 0, liveHist = [];
   function meter() {
     if (!micAn) return;
     micAn.getFloatTimeDomainData(meterData);
     let pk = 0;
     for (const v of meterData) { const a = Math.abs(v); if (a > pk) pk = a; }
     meterPeak = Math.max(pk, meterPeak * 0.92);
+    lastMicPk = pk;
     const bar = $("mzMeterBar"), label = $("mzMeterText");
     bar.style.width = `${Math.min(100, meterPeak * 100)}%`;
     const [color, text] = meterPeak > 0.95 ? ["#dc2626", "חזק מדי - התרחקו קצת מהמיקרופון"] : meterPeak < 0.06 ? ["#9ca3af", "חלש - קרבו את המיקרופון או שירו חזק יותר"] : ["#16a34a", "עוצמה טובה"];
@@ -1286,6 +1297,104 @@
       btn.disabled = false;
     }
   });
+  // ---------- מדי שמע: עוצמה, צלילים, והקלטה חיה ----------
+  let masterAn = null;
+  function tap(c, node) {
+    const sp = c.createChannelSplitter(2), l = c.createAnalyser(), r = c.createAnalyser(), fq = c.createAnalyser();
+    l.fftSize = r.fftSize = 1024; fq.fftSize = 2048; fq.smoothingTimeConstant = 0.8;
+    node.connect(sp); sp.connect(l, 0); sp.connect(r, 1); node.connect(fq);
+    masterAn = { l, r, fq, ld: new Float32Array(1024), rd: new Float32Array(1024), fd: new Uint8Array(1024) };
+  }
+  const vu = { l: 0, r: 0, pl: 0, pr: 0, tl: 0, tr: 0, clip: -9999 };
+  const tBuf = new Float32Array(512);
+  let vuOn = false;
+  const peakOf = (an, buf) => { an.getFloatTimeDomainData(buf); let p = 0; for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > p) p = a; } return p; };
+  const dbFrac = (v) => Math.min(1, Math.max(0, (20 * Math.log10(Math.max(v, 1e-6)) + 60) / 60)); // מ-60- עד 0 דציבל
+  const ink = () => getComputedStyle(document.body).color;
+  function vuStart() { if (!vuOn) { vuOn = true; requestAnimationFrame(vuLoop); } }
+  function vuLoop(ts) {
+    const active = playing || rec || micAn || pnLive.size;
+    if (masterAn) {
+      const pl = peakOf(masterAn.l, masterAn.ld), pr = peakOf(masterAn.r, masterAn.rd);
+      vu.l = Math.max(pl, vu.l * 0.9); vu.r = Math.max(pr, vu.r * 0.9);
+      if (pl >= vu.pl) { vu.pl = pl; vu.tl = ts; } else if (ts - vu.tl > 1200) vu.pl = Math.max(vu.l, vu.pl * 0.96);
+      if (pr >= vu.pr) { vu.pr = pr; vu.tr = ts; } else if (ts - vu.tr > 1200) vu.pr = Math.max(vu.r, vu.pr * 0.96);
+      if (pl > 0.99 || pr > 0.99) vu.clip = ts;
+      drawVu(ts); drawSpec();
+    }
+    for (const t of tracks) { // מד קטן בכל ערוץ
+      const p = t.an && playing ? peakOf(t.an, tBuf) : 0;
+      t.lv = Math.max(p, (t.lv || 0) * 0.88);
+      const bar = t.el.querySelector(".mz-tmeter > span");
+      bar.style.width = `${Math.min(100, t.lv * 110)}%`;
+      bar.style.background = t.lv > 0.95 ? "#dc2626" : t.lv > 0.6 ? "#eab308" : "#16a34a";
+    }
+    drawLive();
+    if (active || vu.l > 0.002 || vu.r > 0.002) requestAnimationFrame(vuLoop); else { vuOn = false; vu.pl = vu.pr = 0; if (masterAn) { drawVu(ts); } }
+  }
+  function drawVu(ts) {
+    const cv = $("mzVu"), g = cv.getContext("2d"), W = cv.width, H = cv.height, lab = 34, bw = W - lab - 22;
+    g.clearRect(0, 0, W, H);
+    const rows = [["ש", vu.l, vu.pl], ["י", vu.r, vu.pr]];
+    rows.forEach(([name, v, pk], i) => {
+      const y = 4 + i * 20;
+      g.fillStyle = "rgba(128,128,128,.22)"; g.fillRect(lab, y, bw, 14);
+      const w = dbFrac(v) * bw;
+      const grad = g.createLinearGradient(lab, 0, lab + bw, 0);
+      grad.addColorStop(0, "#16a34a"); grad.addColorStop(0.66, "#16a34a"); grad.addColorStop(0.8, "#eab308"); grad.addColorStop(1, "#dc2626");
+      g.fillStyle = grad; g.fillRect(lab, y, w, 14);
+      g.fillStyle = ink(); g.fillRect(lab + dbFrac(pk) * bw - 1, y, 2, 14); // שיא אחרון
+      g.font = "bold 12px Arial"; g.fillText(name, 12, y + 12);
+    });
+    g.font = "9px Arial"; g.fillStyle = ink();
+    for (const db of [-48, -24, -12, -6, 0]) { const x = lab + ((db + 60) / 60) * bw; g.fillRect(x, 44, 1, 3); g.fillText(db, x - 6, 55); }
+    g.fillStyle = ts - vu.clip < 1500 ? "#dc2626" : "rgba(128,128,128,.35)"; // נורית חיתוך: השמע חזק מדי
+    g.beginPath(); g.arc(W - 9, 28, 6, 0, 7); g.fill();
+  }
+  function drawSpec() {
+    const cv = $("mzSpec"), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    if (!masterAn) return;
+    masterAn.fq.getByteFrequencyData(masterAn.fd);
+    const n = 72, nyq = ctx.sampleRate / 2, bins = masterAn.fd.length;
+    for (let i = 0; i < n; i++) {
+      const f0 = 40 * Math.pow(16000 / 40, i / n), f1 = 40 * Math.pow(16000 / 40, (i + 1) / n);
+      const a = Math.floor((f0 / nyq) * bins), b = Math.max(a + 1, Math.ceil((f1 / nyq) * bins));
+      let mx = 0;
+      for (let k = a; k < b && k < bins; k++) if (masterAn.fd[k] > mx) mx = masterAn.fd[k];
+      const h = (mx / 255) * (H - 2);
+      g.fillStyle = `hsl(${140 - (i / n) * 140}, 75%, 50%)`;
+      g.fillRect(i * (W / n) + 1, H - h, W / n - 2, h);
+    }
+  }
+  function drawLive() {
+    if (!micAn) return;
+    liveHist.push(lastMicPk);
+    if (liveHist.length > 600) liveHist.shift();
+    const cv = $("mzLive"), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    const bw = W / 600;
+    liveHist.forEach((v, i) => {
+      const h = Math.max(1, Math.min(1, v) * H);
+      g.fillStyle = v > 0.95 ? "#dc2626" : "#2563eb";
+      g.fillRect(i * bw, (H - h) / 2, Math.max(1, bw), h);
+    });
+    const t = rec && ctx ? ctx.currentTime - rec.when : null;
+    $("mzLiveT").textContent = t === null ? "" : t < 0 ? "סופרים..." : fmt(t);
+  }
+
+  // ---------- מצב יום ולילה (בתוכנה; באתר המעטפת של האתר מחליפה) ----------
+  function themeBtn() { const b = $("mzTheme"); if (b) b.textContent = document.documentElement.getAttribute("data-theme") === "light" ? "🌙 מצב לילה" : "☀️ מצב יום"; }
+  if ($("mzTheme")) {
+    $("mzTheme").addEventListener("click", () => {
+      const r = document.documentElement, t = r.getAttribute("data-theme") === "light" ? "dark" : "light";
+      r.setAttribute("data-theme", t);
+      try { localStorage.setItem("vc-theme", t); } catch (e) { /* בלי שמירה */ }
+      themeBtn();
+    });
+    themeBtn();
+  }
+
   // ---------- נגינה: פסנתר על המסך, מקלדת המחשב ו-MIDI ----------
   const pnBase = () => 48 + 12 * pnOct; // 2 אוקטבות מתחילות מדו
   let pnOct = 1, pnRecording = false, pnEvents = [], pnFrom = 0;
@@ -1318,6 +1427,7 @@
     if (pnLive.has(m)) return;
     const c = audio();
     pnLive.set(m, voiceNodes(c, masterIn, $("pnInst").value, m, c.currentTime, vel));
+    vuStart();
     pianoKey(m, true);
     if (pnRecording) pnEvents.push({ m, t: now(), vel, off: null });
   }
@@ -2171,6 +2281,8 @@
     "[data-a=dip]": "מנמיך את הערוץ בקטע המסומן (למשל כשמדברים מעל המנגינה)",
     "[data-a=undip]": "מבטל את כל ההנמכות בערוץ",
     ".mz-take": "בוחר איזה ניסיון של הערוץ נשמע",
+    "#mzTheme": "מחליף בין מצב יום (רקע בהיר) למצב לילה (רקע כהה), ומשותף לאולפן השידור",
+    "#mzMeters": "מדי שמע: עוצמה שמאל וימין עם שיא אחרון, צלילים (נמוכים עד גבוהים), והקלטה חיה בזמן הקלטה",
     "#mzExport": "שומר את השיר המחובר כקובץ WAV באיכות מלאה",
     "#mzExportMp3": "שומר את השיר המחובר כקובץ MP3 קטן, נוח לשליחה",
     "#mzFile": "מוסיף שיר, מנגנון, הקלטה או סרטון מהמחשב",
