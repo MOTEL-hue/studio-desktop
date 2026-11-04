@@ -385,6 +385,7 @@
       <button type="button" class="btn btn-secondary" data-a="vocal">🎤 שירה בלבד</button>
       <button type="button" class="btn btn-secondary" data-a="denoise">🧹 ניקוי רעשים</button>
       <button type="button" class="btn btn-secondary" data-a="split">✂ חיתוך במקום הסמן</button>
+      <button type="button" class="btn btn-secondary" data-a="cut">🗑 מחיקת הקטע המסומן</button>
       <label class="mz-inline">סולם השיר <select class="mz-key"><option value="-1">כל הצלילים</option>${NOTE_NAMES
         .map((n, i) => `<option value="${i}">${n} מז'ור / ${NOTE_NAMES[(i + 9) % 12]} מינור</option>`).join("")}</select></label>
       <label class="mz-inline">עוצמת תיקון <select class="mz-tune"><option value="0.5">עדין</option><option value="0.8" selected>בינוני</option>
@@ -464,6 +465,7 @@
   async function action(t, a) {
     if (a === "mute" || a === "solo") { t[a] = !t[a]; sync(t); if (playing) play(now()); return; }
     if (a === "auto") { auStart(t); return; }
+    if (a === "cut") { cutRange(t); return; }
     if (a === "retake") {
       retakeOf = retakeOf === t ? null : t;
       updateRetake();
@@ -579,6 +581,9 @@
         const h = Math.max(1, mx * H);
         g.fillRect(x, (H - h) / 2, 1, h);
       }
+      g.fillStyle = "#1d4ed8"; // ידיות בקצוות הערוץ: גוררים כדי לחתוך
+      if (xa === Math.max(0, Math.floor(((t.start - v0) / vlen) * W))) g.fillRect(xa, 0, 3, H);
+      g.fillRect(xb - 3, 0, 3, H);
       g.fillStyle = "rgba(239,68,68,.22)"; // קטעי הנמכה
       for (const sg of t.auto || []) {
         const x1 = Math.max(0, ((sg.a - v0) / vlen) * W), x2 = Math.min(W, ((sg.b - v0) / vlen) * W);
@@ -591,16 +596,27 @@
   function dragWave(t) {
     const cv = t.canvas;
     let start = null;
+    const edgeAt = (e) => { // האם העכבר על קצה הערוץ (7 פיקסלים)
+      const r = cv.getBoundingClientRect(), { v0, vlen } = view(), px = e.clientX - r.left;
+      const xs = ((t.start - v0) / vlen) * r.width, xe = ((t.start + len(t) - v0) / vlen) * r.width;
+      return Math.abs(px - xs) <= 7 ? "trimS" : Math.abs(px - xe) <= 7 ? "trimE" : "move";
+    };
     cv.addEventListener("pointerdown", (e) => {
-      start = { x: e.clientX, s: t.start, moved: false };
+      start = { x: e.clientX, s: t.start, ts: t.trimS, te: t.trimE, mode: edgeAt(e), moved: false };
       cv.setPointerCapture(e.pointerId);
     });
     cv.addEventListener("pointermove", (e) => {
-      if (!start) return;
+      if (!start) { cv.style.cursor = edgeAt(e) === "move" ? "grab" : "ew-resize"; return; }
       const dx = e.clientX - start.x;
       if (Math.abs(dx) < 4 && !start.moved) return;
       start.moved = true;
-      t.start = Math.max(0, +(start.s + (dx / cv.clientWidth) * view().vlen).toFixed(2));
+      const dt = (dx / cv.clientWidth) * view().vlen, dur = t.buf.duration;
+      if (start.mode === "trimS") { // גוררים את תחילת הערוץ: חותכים או מחזירים, והשמע נשאר במקומו
+        t.trimS = Math.min(Math.max(0, start.ts + dt), dur - start.te - 0.05);
+        t.start = Math.max(0, +(start.s + (t.trimS - start.ts)).toFixed(3));
+      } else if (start.mode === "trimE") {
+        t.trimE = Math.min(Math.max(0, start.te - dt), dur - t.trimS - 0.05);
+      } else t.start = Math.max(0, +(start.s + dt).toFixed(2));
       redraw();
     });
     cv.addEventListener("pointerup", (e) => {
@@ -619,6 +635,49 @@
       setZoom(zoom * (e.deltaY < 0 ? 1.5 : 1 / 1.5), v0 + ((e.clientX - r.left) / r.width) * vlen);
     }, { passive: false });
   }
+
+  // מחיקת קטע [A,B] (זמן בשיר) מערוץ, וחיבור מה שאחריו. עם ripple גם ההתחלה זזה לפי הקטע שנמחק.
+  function cutTrack(t, A, B, ripple) {
+    const L = len(t), t0 = t.start, t1 = t0 + L;
+    if (B <= t0 || A >= t1) return false;
+    const sr = t.buf.sampleRate, a = Math.max(A, t0), b = Math.min(B, t1);
+    const src0 = Math.floor(t.trimS * sr), srcEnd = Math.min(t.buf.length, Math.floor((t.trimS + L) * sr));
+    const ia = Math.min(srcEnd, src0 + Math.floor((a - t0) * sr)), ib = Math.min(srcEnd, src0 + Math.floor((b - t0) * sr));
+    const k1 = ia - src0, k2 = srcEnd - ib, n = k1 + k2;
+    if (n < sr * 0.02) { // לא נשאר כלום מהערוץ
+      tracks.splice(tracks.indexOf(t), 1); t.el.remove(); return true;
+    }
+    const nb = new AudioBuffer({ length: n, numberOfChannels: t.buf.numberOfChannels, sampleRate: sr }), f = Math.max(1, Math.min(Math.floor(0.005 * sr), k1, k2));
+    for (let c = 0; c < nb.numberOfChannels; c++) {
+      const d = t.buf.getChannelData(c), o = nb.getChannelData(c);
+      o.set(d.subarray(src0, ia), 0); o.set(d.subarray(ib, srcEnd), k1);
+      if (k1 && k2) for (let i = 0; i < f; i++) { const g = i / f; o[k1 + i] *= g; o[k1 - 1 - i] *= g; } // מעבר חלק בנקודת החיבור
+    }
+    const shift = b - a;
+    t.auto = (t.auto || []).filter((x) => x.b <= a || x.a >= b).map((x) => (x.a >= b ? { ...x, a: +(x.a - shift).toFixed(3), b: +(x.b - shift).toFixed(3) } : x));
+    t.buf = nb; t.bufId = newId(); t.trimS = 0; t.trimE = 0;
+    if (k1 === 0) t.start = ripple ? A : a;
+    return true;
+  }
+  function cutRange(only) {
+    if (markA === null || markB === null) { status("קודם מסמנים קטע: \"⟦ התחלת קטע\" ו\"⟧ סוף קטע\"."); return; }
+    const A = markA, B = markB, shift = B - A;
+    const list = only ? [only] : [...tracks];
+    for (const t of list) {
+      if (!tracks.includes(t)) continue;
+      if (!cutTrack(t, A, B, !only) && !only && t.start >= B) t.start = Math.max(0, +(t.start - shift).toFixed(3)); // ערוץ שמתחיל אחרי הקטע זז אחורה
+    }
+    if (!only) { // מחיקה מכל הערוצים: גם מילות השיר והסימונים זזים
+      lyrTimes = lyrTimes.map((x) => (x >= B ? x - shift : Math.min(x, A)));
+      markA = markB = null; showMarks();
+      if (pos > A) pos = Math.max(A, pos - shift);
+    }
+    applyGroups(); $("mzEmpty").hidden = tracks.length > 0;
+    redraw(); touch();
+    if (playing) play(Math.min(now(), A));
+    status(only ? "הקטע נמחק מהערוץ, והחלק שאחריו חובר." : `הקטע (${shift.toFixed(1)} שניות) נמחק מכל הערוצים, והרווח נסגר. "↶ ביטול" מחזיר.`);
+  }
+  $("mzCutAll").addEventListener("click", () => { if (confirm("למחוק את הקטע המסומן מכל הערוצים ולסגור את הרווח?")) cutRange(null); });
 
   function seekTo(p) {
     pos = Math.max(0, p);
@@ -2253,6 +2312,11 @@
           d[lag] = sum ? (v * lag) / sum : 1;
         }
         for (let lag = minLag; lag < maxLag; lag++) if (d[lag] < 0.18) { while (lag + 1 < maxLag && d[lag + 1] < d[lag]) lag++; tau = lag; break; }
+        if (tau < 0) { // הקלטה עם הד: מקבלים גם התאמה פחות חדה, אם היא ברורה יחסית לשאר
+          let bl = -1, bv = 0.3;
+          for (let lag = minLag; lag < maxLag; lag++) if (d[lag] < bv) { bv = d[lag]; bl = lag; }
+          tau = bl;
+        }
         if (tau > 0) f0[f] = dsr / tau;
       }
       if (f % 300 === 0) await pause();
@@ -2260,25 +2324,44 @@
     return { f0, rms, hop: (H * D) / sr };
   }
   function analyzeVoice(pt, dur) {
-    const { f0, rms, hop } = pt, n = f0.length;
-    const sorted = [...rms].filter((v) => v > 0).sort((p, q) => p - q);
+    const { rms, hop } = pt, n = rms.length, raw = Float32Array.from(pt.f0);
+    // החלקת גובה הקול: תיקון קפיצות של אוקטבה, וחציון על חלון של 5 פריימים (מנטרל רעידות ושגיאות בודדות)
+    let prev = 0, gap = 0;
+    for (let i = 0; i < n; i++) {
+      if (raw[i] > 0) {
+        if (prev > 0) { const r = raw[i] / prev; if (r > 1.85 && r < 2.15) raw[i] /= 2; else if (r > 0.465 && r < 0.54) raw[i] *= 2; }
+        prev = raw[i]; gap = 0;
+      } else if (++gap > 3) prev = 0;
+    }
+    const f0 = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      if (!raw[i]) continue;
+      const w = [];
+      for (let k = -2; k <= 2; k++) { const v = raw[i + k]; if (v > 0) w.push(v); }
+      w.sort((p2, q2) => p2 - q2);
+      f0[i] = w[w.length >> 1];
+    }
+    const sorted = [...rms].filter((v) => v > 0).sort((p2, q2) => p2 - q2);
     const floor = sorted.length ? sorted[Math.floor(sorted.length * 0.1)] : 0, peak = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : 0;
-    const thr = Math.max(floor * 3, peak * 0.12, 0.004);
+    const thr = Math.max(Math.min(floor * 3, peak * 0.2), peak * 0.1, 0.004); // בשירה רצופה אין שקט, ולכן לא נותנים לרצפה הגבוהה להעלות את הסף יותר מדי
     const active = (i) => rms[i] > thr;
+    // רעש רקע: עוצמת הרגעים השקטים (מתחת לסף). בשירה רצופה בלי שקט אי אפשר למדוד, ולכן לא מציעים ניקוי
+    const quiet = [...rms].filter((v) => v > 0 && v <= thr).sort((p2, q2) => p2 - q2);
+    const noisy = quiet.length > n * 0.05 && 20 * Math.log10(quiet[quiet.length >> 1]) > -46;
     // קטעי דיבור/שירה (להנמכת המוזיקה): מאחדים הפסקות קצרות מ-0.6 שניות
     const vad = [];
     for (let i = 0; i < n; i++) if (active(i)) {
       const t = i * hop, last = vad[vad.length - 1];
       if (last && t - last[1] < 0.6) last[1] = t + hop; else vad.push([t, t + hop]);
     }
-    const speech = vad.filter((s) => s[1] - s[0] >= 0.12);
-    // צלילים: רצף של פריימים בגובה יציב (עד חצי טון מהקודם)
+    const speech = vad.filter((s2) => s2[1] - s2[0] >= 0.12);
+    // צלילים: רצף של פריימים בגובה יציב (עד פחות מחצי טון מהממוצע, כדי לסבול ויברטו)
     const notes = [];
     let cur = null;
     for (let i = 0; i < n; i++) {
       if (f0[i] > 0 && active(i)) {
         const m = 69 + 12 * Math.log2(f0[i] / 440);
-        if (cur && Math.abs(m - cur.m) < 0.7) { cur.n++; cur.m = (cur.m * (cur.n - 1) + m) / cur.n; }
+        if (cur && Math.abs(m - cur.m) < 0.85) { cur.n++; cur.m = (cur.m * (cur.n - 1) + m) / cur.n; }
         else { if (cur) notes.push(cur); cur = { i, n: 1, m }; }
       } else if (cur) { notes.push(cur); cur = null; }
     }
@@ -2286,37 +2369,57 @@
     const voiced = notes.reduce((s2, q) => s2 + q.n, 0) * hop;
     const sustained = notes.filter((q) => q.n * hop >= 0.28).reduce((s2, q) => s2 + q.n, 0) * hop;
     const sustain = voiced ? sustained / voiced : 0;
-    const kind = voiced > 2 && sustain > 0.4 ? "song" : "speech";
+    const longNotes = notes.filter((q) => q.n * hop >= 0.28).length;
+    const kind = voiced > 2 && (sustain > 0.4 || (sustain > 0.25 && longNotes >= 8)) ? "song" : "speech"; // שיר: הרבה צלילים ארוכים ויציבים (גם עם הד)
+    // כיול: אם הזמר מכוון קצת גבוה או נמוך מהכוונון הרגיל, מתקנים לפני שמחליטים באיזה צליל מדובר
+    let sx = 0, cx = 0;
+    for (const q of notes) { const dv = q.m - Math.round(q.m); sx += q.n * Math.sin(2 * Math.PI * dv); cx += q.n * Math.cos(2 * Math.PI * dv); }
+    const tuning = notes.length ? Math.atan2(sx, cx) / (2 * Math.PI) : 0;
     // סולם: התאמה לפרופילים של מז'ור ומינור
     const pc = new Float64Array(12);
-    for (const q of notes) pc[((Math.round(q.m) % 12) + 12) % 12] += q.n;
+    for (const q of notes) pc[((Math.round(q.m - tuning) % 12) + 12) % 12] += q.n;
     const corr = (prof, shift) => {
-      const a = [], b2 = [];
-      for (let i = 0; i < 12; i++) { a.push(pc[(i + shift) % 12]); b2.push(prof[i]); }
-      const ma = a.reduce((s2, v) => s2 + v, 0) / 12, mb = b2.reduce((s2, v) => s2 + v, 0) / 12;
+      const a2 = [], b2 = [];
+      for (let i = 0; i < 12; i++) { a2.push(pc[(i + shift) % 12]); b2.push(prof[i]); }
+      const ma = a2.reduce((s2, v) => s2 + v, 0) / 12, mb = b2.reduce((s2, v) => s2 + v, 0) / 12;
       let num2 = 0, da = 0, db = 0;
-      for (let i = 0; i < 12; i++) { num2 += (a[i] - ma) * (b2[i] - mb); da += (a[i] - ma) ** 2; db += (b2[i] - mb) ** 2; }
+      for (let i = 0; i < 12; i++) { num2 += (a2[i] - ma) * (b2[i] - mb); da += (a2[i] - ma) ** 2; db += (b2[i] - mb) ** 2; }
       return da && db ? num2 / Math.sqrt(da * db) : -1;
     };
     let key = 0, mode = "maj", best = -2;
     for (let r = 0; r < 12; r++) for (const [md, prof] of [["maj", PROF_MAJ], ["min", PROF_MIN]]) { const c = corr(prof, r); if (c > best) { best = c; key = r; mode = md; } }
-    // קצב: התאמה של תחילות הצלילים לרשת פעימות (60 עד 150 לדקה)
+    // קצב: תחילות של צלילים ועליות בעוצמה (הברות), מוחלקות, והתאמה לרשת פעימות בין 60 ל-150 לדקה
     const onset = new Float32Array(n);
     for (const q of notes) if (q.n * hop >= 0.1) onset[q.i] = 1;
-    const count = onset.reduce((s2, v) => s2 + v, 0);
-    let bpm0 = 0, bestS = 0;
+    let rising = false;
+    for (let i = 3; i < n; i++) {
+      const up = rms[i] - rms[i - 3] > 0.3 * peak && rms[i - 3] < 0.6 * rms[i];
+      if (up && !rising && !onset[i] && !onset[i - 1] && !onset[i + 1]) onset[i] = 0.8;
+      rising = up;
+    }
+    const os = new Float32Array(n);
+    for (let i = 0; i < n; i++) os[i] = onset[i] + 0.6 * ((onset[i - 1] || 0) + (onset[i + 1] || 0));
+    const at = (x) => { const i = Math.floor(x), f = x - i; return (os[i] || 0) * (1 - f) + (os[i + 1] || 0) * f; };
+    const count = onset.reduce((s2, v) => s2 + (v > 0 ? 1 : 0), 0);
+    let bpm0 = 0;
     if (count >= 8) {
+      const score = [];
+      let bestS = 0;
       for (let b3 = 60; b3 <= 150; b3++) {
-        const lag = Math.round(60 / b3 / hop);
+        const lag = 60 / b3 / hop;
         let sc = 0;
-        for (let i = 0; i + 2 * lag < n; i++) if (onset[i]) sc += (onset[i + lag] || (onset[i + lag - 1] || onset[i + lag + 1]) * 0.7) + 0.5 * onset[i + 2 * lag];
+        for (let i = 0; i + 2 * lag < n; i++) if (os[i] > 0) sc += os[i] * (at(i + lag) + 0.5 * at(i + 2 * lag));
         sc /= Math.pow(b3 / 100, 0.3); // מעדיפים קצבים קרובים ל-100
+        score[b3] = sc;
         if (sc > bestS) { bestS = sc; bpm0 = b3; }
       }
+      // טעות נפוצה: מזהים חצי מהקצב האמיתי (כי כל פעימה שנייה מתאימה גם). אם הכפול כמעט באותה התאמה - הוא הנכון
+      if (bpm0 * 2 <= 150 && score[bpm0 * 2] >= 0.7 * bestS) bpm0 *= 2;
     }
-    return { kind, key, mode, bpm: bpm0, vad: speech, onset0: speech.length ? speech[0][0] : 0, sustain, dur,
+    return { kind, key, mode, bpm: bpm0, longNotes, voiced, count, vad: speech, onset0: speech.length ? speech[0][0] : 0, sustain, dur, tuning,
+      f0Arr: f0, rmsArr: rms, hop,
       rmsVoice: speech.length ? rms.reduce((s2, v) => s2 + (v > thr ? v : 0), 0) / Math.max(1, rms.filter((v) => v > thr).length) : 0.1,
-      floorDb: floor > 0 ? 20 * Math.log10(floor) : -90, noisy: floor > 0 && 20 * Math.log10(floor) > -46 };
+      floorDb: floor > 0 ? 20 * Math.log10(floor) : -90, noisy };
   }
   // שרשרת אקורדים לפי הסולם שזוהה (או סולם ברירת מחדל לקריינות)
   function progression(key, mode, idx) {
@@ -2345,19 +2448,55 @@
     ],
   };
   const rmsOf = (b) => { const d = b.getChannelData(0); let e = 0; for (let i = 0; i < d.length; i += 4) e += d[i] * d[i]; return Math.sqrt(e / (d.length / 4)) || 1e-6; };
-  async function renderLoop(v) { // מחזור של 8 תיבות; הזנב של הצלילים האחרונים מוסף להתחלה, כך שהחזרה חלקה
-    const raw = await renderBeat({ ...v.cfg, bars: 8, pat: patOf(v.cfg.preset) });
-    const L = Math.round(8 * (240 / v.cfg.bpm) * SR), out = new AudioBuffer({ length: L, numberOfChannels: 2, sampleRate: SR });
+  async function renderLoopOne(cfg) { // מחזור של 4 תיבות (אקורד לכל תיבה); הזנב של הצלילים האחרונים מוסף להתחלה, כך שהחזרה חלקה
+    const raw = await renderBeat({ ...cfg, bars: 4, pat: patOf(cfg.preset) });
+    const L = Math.round(4 * (240 / cfg.bpm) * SR), out = new AudioBuffer({ length: L, numberOfChannels: 2, sampleRate: SR });
     for (let c = 0; c < 2; c++) {
       const s2 = raw.getChannelData(c), d = out.getChannelData(c);
       for (let i = 0; i < L; i++) d[i] = s2[i];
       for (let i = 0; i < raw.length - L && i < L; i++) d[i] += s2[L + i];
     }
-    v.loop = out; v.loopRms = rmsOf(out);
+    return out;
+  }
+  async function renderLoop(v) {
+    v.loop = await renderLoopOne(v.cfg); // פזמון: המוזיקה המלאה
+    v.loopRms = rmsOf(v.loop);
+    v.loopV = au.info.kind === "song" && v.sections ? await renderLoopOne({ ...v.cfg, kit: "soft", fill: false, style: "arp" }) : v.loop; // בית: רגוע יותר
   }
   function tileLoop(loop, seconds) {
     const len2 = Math.ceil(seconds * SR), out = new AudioBuffer({ length: len2, numberOfChannels: 2, sampleRate: SR });
     for (let c = 0; c < 2; c++) { const s2 = loop.getChannelData(c), d = out.getChannelData(c); for (let i = 0; i < len2; i++) d[i] = s2[i % s2.length]; }
+    return out;
+  }
+  // בית ופזמון: כל 4 תיבות מקבלות מוזיקה רגועה (בית) או מלאה (פזמון), לפי העוצמה והגובה של השירה באותו קטע
+  function sectionFlags(v, offset, chunkSec, count) {
+    const A = au.info, sc = [];
+    for (let k = 0; k < count; k++) {
+      const i0 = Math.floor((k * chunkSec - offset) / A.hop), i1 = Math.floor(((k + 1) * chunkSec - offset) / A.hop);
+      let r = 0, m = 0, c = 0;
+      for (let i = Math.max(0, i0); i < Math.min(A.rmsArr.length, i1); i++) if (A.f0Arr[i] > 0) { r += A.rmsArr[i]; m += 69 + 12 * Math.log2(A.f0Arr[i] / 440); c++; }
+      sc.push(c > 3 ? { r: r / c, m: m / c } : null);
+    }
+    const have = sc.filter(Boolean);
+    if (have.length < 2) return sc.map((x, k) => k % 2 === 1);
+    const mean = (f) => have.reduce((s2, x) => s2 + f(x), 0) / have.length, sd = (f, mu) => Math.sqrt(have.reduce((s2, x) => s2 + (f(x) - mu) ** 2, 0) / have.length) || 1;
+    const mr = mean((x) => x.r), mm = mean((x) => x.m), sr2 = sd((x) => x.r, mr), sm2 = sd((x) => x.m, mm);
+    const z = sc.map((x) => (x ? (x.r - mr) / sr2 + (x.m - mm) / sm2 : null));
+    const zs = z.filter((q) => q !== null), lo = Math.min(...zs), hi = Math.max(...zs);
+    if (hi - lo < 0.8) return z.map((_, k) => k % 2 === 1); // בלי הבדל ברור בין הקטעים: מתחלפים בית ופזמון
+    return z.map((q) => (q === null ? false : q > (lo + hi) / 2)); // חצי העליון בין הקטע השקט לקטע החזק = פזמון
+  }
+  function tileSections(v, seconds, offset) {
+    const L = v.loop.length, chunkSec = L / SR, count = Math.ceil(seconds / chunkSec), flags = sectionFlags(v, offset, chunkSec, count);
+    const len2 = Math.ceil(seconds * SR), out = new AudioBuffer({ length: len2, numberOfChannels: 2, sampleRate: SR });
+    for (let c = 0; c < 2; c++) {
+      const d = out.getChannelData(c), full = v.loop.getChannelData(c), calm = v.loopV.getChannelData(c);
+      for (let k = 0; k < count; k++) {
+        const src = flags[k] ? full : calm, g = flags[k] ? 1 : 0.8, base = k * L;
+        for (let i = 0; i < L && base + i < len2; i++) d[base + i] = src[i] * g;
+      }
+    }
+    v.flags = flags;
     return out;
   }
   const mkTrack = (buf, f) => ({ name: "", buf, start: 0, vol: 1, pan: 0, mute: false, solo: false, reverb: 0, echo: 0, fadeIn: 0, fadeOut: 0, trimS: 0, trimE: 0,
@@ -2376,7 +2515,7 @@
     const fx = !v.polish ? {} : A.kind === "song" ? { eqLow: 1, eqMid: 1, eqHigh: 2, comp: 0.3, reverb: 0.2 } : { eqLow: -2, eqMid: 2, eqHigh: 1, comp: 0.3, reverb: 0.06 };
     const auto = v.duck < 1 ? A.vad.map(([a, b]) => ({ a: +(a + offset).toFixed(3), b: +(b + offset).toFixed(3), v: v.duck })) : [];
     return { total, voice: mkTrack(voiceBuf, { start: offset, ...fx }),
-      music: mkTrack(tileLoop(v.loop, end), { vol: v.vol, auto, fadeIn: 0.2, fadeOut: end === total ? tail : 0 }) };
+      music: mkTrack(A.kind === "song" && v.sections ? tileSections(v, end, offset) : tileLoop(v.loop, end), { vol: v.vol, auto, fadeIn: 0.2, fadeOut: end === total ? tail : 0 }) };
   }
   async function renderMix(v, maxSec) {
     const sp = versionSpec(v, maxSec), end = Math.min(sp.total, maxSec || sp.total);
@@ -2404,6 +2543,7 @@
     $("auImpTitle").textContent = `${v.icon} ${v.name} - שיפור הגרסה`;
     $("auMusicVol").value = v.vol; $("auDuck").value = String(v.duck); $("auBpm").value = v.cfg.bpm;
     $("auInst").value = v.cfg.inst; $("auDrums").value = v.cfg.preset; $("auPolish").checked = v.polish; $("auDenoise").checked = v.denoise;
+    $("auSections").checked = !!v.sections; $("auSections").parentElement.hidden = au.info.kind !== "song";
   }
   function auSelect(i) {
     au.cur = i;
@@ -2417,7 +2557,9 @@
     const musicChanged = bp !== v.cfg.bpm || $("auInst").value !== v.cfg.inst || $("auDrums").value !== v.cfg.preset;
     v.cfg.bpm = bp; v.cfg.inst = $("auInst").value; v.cfg.preset = $("auDrums").value;
     v.vol = +$("auMusicVol").value; v.duck = +$("auDuck").value; v.polish = $("auPolish").checked; v.denoise = $("auDenoise").checked;
-    if (musicChanged) { v.loop = null; v.chordsKey = null; }
+    const secChanged = au.info.kind === "song" && $("auSections").checked !== !!v.sections;
+    v.sections = $("auSections").checked;
+    if (musicChanged || secChanged) v.loop = null;
     clearTimeout(auTimer);
     auTimer = setTimeout(() => { auPlay(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); }, 500);
   }
@@ -2472,11 +2614,12 @@
     const A = au.info;
     if (kindOverride) A.kind = kindOverride;
     $("auKind").value = A.kind;
+    $("auKey").value = `${A.key}${A.mode}`;
     const song = A.kind === "song", bpm0 = song && A.bpm ? A.bpm : song ? 100 : 90;
     const keyName = `${NOTES_EN[A.key]}${A.mode === "min" ? "m" : ""}`;
     $("auInfo").textContent = `זוהה: ${song ? "🎤 שיר" : "🗣️ קריינות"}${song ? ` • סולם ${keyName}${A.bpm ? ` • קצב משוער ${A.bpm}` : ""}` : ""} • ${Math.round(A.dur)} שניות • ${A.noisy ? "יש רעש רקע - מומלץ ניקוי רעשים" : "ההקלטה נקייה"}. אם הזיהוי שגוי, בוחרים למעלה את הסוג הנכון.`;
     au.versions = TEMPL[song ? "song" : "speech"].map((t, i) => ({ ...t, cfg: { ...t.cfg, bpm: bpm0, chords: progression(song ? A.key : 0, song ? A.mode : "maj", i), bars: 8 },
-      prog: i, polish: true, denoise: A.noisy, loop: null }));
+      prog: i, polish: true, denoise: A.noisy, loop: null, sections: song }));
     au.cur = -1; au.clean = null;
     auCards();
     for (let i = 0; i < au.versions.length; i++) {
@@ -2517,12 +2660,22 @@
       au.busy = false;
     }
   }
-  $("auKind").addEventListener("change", () => { if (au && au.info && !au.busy) { au.busy = true; auStop(); auBuild($("auKind").value).catch((e) => status(`לא הצלחתי: ${e.message || e}`)).finally(() => { au.busy = false; }); } });
-  for (const id of ["auMusicVol", "auDuck", "auBpm", "auInst", "auDrums", "auPolish", "auDenoise"]) $(id).addEventListener("change", auChange);
+  for (let i = 0; i < 12; i++) for (const md of ["maj", "min"]) { const o = document.createElement("option"); o.value = `${i}${md}`; o.textContent = `${NOTES_EN[i]}${md === "min" ? "m" : ""}`; $("auKey").appendChild(o); }
+  const auRebuild = () => { // שינוי ידני של סוג ההקלטה או הסולם: בונים את הגרסאות מחדש
+    if (!au || !au.info || au.busy) return;
+    const m = /^(\d+)(maj|min)$/.exec($("auKey").value);
+    if (m) { au.info.key = +m[1]; au.info.mode = m[2]; }
+    au.busy = true; auStop();
+    auBuild($("auKind").value).catch((e) => status(`לא הצלחתי: ${e.message || e}`)).finally(() => { au.busy = false; });
+  };
+  $("auKind").addEventListener("change", auRebuild);
+  $("auKey").addEventListener("change", auRebuild);
+  for (const id of ["auMusicVol", "auDuck", "auBpm", "auInst", "auDrums", "auPolish", "auDenoise", "auSections"]) $(id).addEventListener("change", auChange);
   $("auPlay").addEventListener("click", () => { const v = auCur(); if (!v) return; if (auSrc) auStop(); else auPlay(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); });
   $("auChoose").addEventListener("click", () => { const v = auCur(); if (v) auChoose(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); });
   $("auBalance").addEventListener("click", () => { const v = auCur(); if (v) auImprove(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); });
   $("auReroll").addEventListener("click", () => { const v = auCur(); if (v) auReroll(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); });
+  window.__mzAu = () => au; // לבדיקות
   window.__mzAnalyze = async (buf) => { const pt = await pitchTrack(buf); window.__pt = pt; return analyzeVoice(pt, buf.duration); }; // לבדיקות
 
   // ---------- הסברים ומדריך ----------
@@ -2594,6 +2747,8 @@
     "#mzMeters": "מדי שמע: עוצמה שמאל וימין עם שיא אחרון, צלילים (נמוכים עד גבוהים), והקלטה חיה בזמן הקלטה",
     "[data-a=auto]": "מזהה אם זה שיר או קריינות, ומציע לבד כמה גרסאות מוכנות עם מוזיקה",
     "#auAutoOffer": "אחרי כל הקלטה האולפן יזהה ויציע גרסאות עם מוזיקה",
+    "#auKey": "הסולם של השיר. אם הזיהוי טעה, בוחרים את הנכון והמוזיקה נבנית מחדש",
+    "#auSections": "מוזיקה רגועה בבתים ומלאה בפזמונים, לפי העוצמה והגובה של השירה",
     "#auKind": "מה הוקלט. אם הזיהוי האוטומטי טעה, בוחרים כאן את הסוג הנכון",
     "#auPlay": "משמיע את הגרסה שנבחרה (45 השניות הראשונות)",
     "#auChoose": "מוסיף את הגרסה לפרויקט: הקול והמוזיקה בערוצים נפרדים, המוזיקה מונמכת כשמדברים",
@@ -2625,7 +2780,9 @@
     "#bmPreview": "משמיע את המנגנון בלי להוסיף אותו",
     "#bmAdd": "מוסיף את המנגנון כערוץ, כדי להקליט עליו",
     ".mz-name": "שם הערוץ - לוחצים ומשנים",
-    ".mz-wave": "גוררים כדי להזיז את הערוץ בזמן. לחיצה מזיזה את הסמן האדום",
+    ".mz-wave": "גוררים כדי להזיז את הערוץ בזמן. גוררים את הקצה הכחול של הערוץ כדי לחתוך את תחילתו או את סופו. לחיצה מזיזה את הסמן האדום",
+    "[data-a=cut]": "מוחק מהערוץ הזה את הקטע המסומן ומחבר את מה שאחריו",
+    "#mzCutAll": "מוחק את הקטע המסומן מכל הערוצים וסוגר את הרווח, כולל מילות השיר",
     "[data-a=mute]": "השתקה: הערוץ לא נשמע ולא נכנס לייצוא",
     "[data-a=solo]": "סולו: שומעים רק את הערוצים שבסולו",
     "[data-a=del]": "מוחק את הערוץ",
