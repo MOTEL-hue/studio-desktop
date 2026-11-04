@@ -65,6 +65,7 @@
     <button type="button" id="mzPunch" class="btn mz-rec" disabled>⏺ הקלטת הקטע</button>
     <label class="mz-inline"><input type="checkbox" id="mzLoop"> 🔁 חזרה על הקטע</label>
     <button type="button" id="mzMarkClear" class="btn btn-secondary">✖ ביטול סימון</button>
+    <button type="button" id="mzCutAll" class="btn btn-secondary">🗑 מחיקת הקטע מכל הערוצים</button>
   </span>
   <div id="mzLyrBox" class="mz-lyr" hidden><div id="mzLyrNow"></div><div id="mzLyrNext"></div></div>
   
@@ -85,6 +86,7 @@
   <div class="mz-row">
     <label class="mz-inline"><input type="checkbox" id="auAutoOffer" checked> להציע גרסאות אוטומטית אחרי כל הקלטה</label>
     <label>סוג ההקלטה <select id="auKind"><option value="song">שיר</option><option value="speech">קריינות</option></select></label>
+    <label>סולם <select id="auKey"></select></label>
   </div>
   <p id="auInfo" class="help-text" role="status">אחרי הקלטה (או בלחיצה על "✨ גרסאות אוטומטיות" בערוץ) יופיעו כאן הגרסאות.</p>
   <div id="auList" class="au-list"></div>
@@ -102,6 +104,7 @@
       <label>קצב <input type="number" id="auBpm" min="50" max="170" step="1"></label>
       <label>כלי <select id="auInst"><option value="piano">פסנתר</option><option value="guitar">גיטרה</option><option value="synth">סינתי</option><option value="pad">משטח רך</option><option value="organ">אורגן</option><option value="none">בלי אקורדים</option></select></label>
       <label>תופים <select id="auDrums"><option value="none">בלי</option><option value="ballad">בלדה</option><option value="pop">פופ</option><option value="rock">רוק</option><option value="hasidic">חסידי</option><option value="mizrahi">מזרחי</option><option value="disco">דיסקו</option><option value="hiphop">היפ הופ</option><option value="reggae">רגאיי</option></select></label>
+      <label class="mz-inline"><input type="checkbox" id="auSections"> בית ופזמון (מוזיקה משתנה)</label>
       <label class="mz-inline"><input type="checkbox" id="auPolish"> שיפור הקול</label>
       <label class="mz-inline"><input type="checkbox" id="auDenoise"> ניקוי רעשים</label>
     </div>
