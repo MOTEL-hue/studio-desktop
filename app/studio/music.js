@@ -65,9 +65,9 @@
     const nodes = [];
     const anySolo = tracks.some((t) => t.solo);
     let verb = null;
-    for (const t of tracks) {
+    for (const t of only ? [only] : tracks) { // "only" יכול להיות גם ערוץ זמני שאינו ברשימה (תצוגה מקדימה של גרסאות אוטומטיות)
       const L = len(t);
-      if (only ? t !== only : (t.mute || (anySolo && !t.solo) || (recSkip && (t === recSkip || (recSkip.group && t.group === recSkip.group))))) continue;
+      if (only ? false : (t.mute || (anySolo && !t.solo) || (recSkip && (t === recSkip || (recSkip.group && t.group === recSkip.group))))) continue;
       if (L <= 0 || t.start + L <= from) continue;
       const src = c.createBufferSource();
       src.buffer = t.buf;
@@ -2437,8 +2437,8 @@
     song: [
       { id: "ballad", icon: "🎹", name: "בלדה רכה", desc: "פסנתר רך, תוף עדין ובס", vol: 0.55, duck: 0.8, cfg: { inst: "piano", style: "arp", preset: "ballad", kit: "soft", bass: true, fill: false } },
       { id: "acoustic", icon: "🎸", name: "אקוסטי חם", desc: "גיטרה, תוף עדין ובס", vol: 0.6, duck: 0.8, cfg: { inst: "guitar", style: "hit", preset: "pop", kit: "soft", bass: true, fill: false } },
-      { id: "pop", icon: "🥁", name: "פופ קליט", desc: "פסנתר, תופים מלאים ובס", vol: 0.6, duck: 0.75, cfg: { inst: "piano", style: "hit", preset: "pop", kit: "std", bass: true, fill: true } },
-      { id: "upbeat", icon: "💃", name: "שמח וקצבי", desc: "גיטרה וקצב חסידי שמח", vol: 0.55, duck: 0.75, cfg: { inst: "guitar", style: "hit", preset: "hasidic", kit: "std", bass: true, fill: true } },
+      { id: "pop", icon: "🥁", name: "פופ קליט", desc: "פסנתר, תופים מלאים ובס", vol: 0.6, duck: 0.8, cfg: { inst: "piano", style: "hit", preset: "pop", kit: "std", bass: true, fill: true } },
+      { id: "upbeat", icon: "💃", name: "שמח וקצבי", desc: "גיטרה וקצב חסידי שמח", vol: 0.55, duck: 0.8, cfg: { inst: "guitar", style: "hit", preset: "hasidic", kit: "std", bass: true, fill: true } },
     ],
     speech: [
       { id: "soft", icon: "🌫️", name: "רקע עדין", desc: "משטח רך בלי תופים", vol: 0.5, duck: 0.3, cfg: { inst: "pad", style: "hit", preset: "none", kit: "soft", bass: false, fill: false } },
@@ -2462,6 +2462,10 @@
     v.loop = await renderLoopOne(v.cfg); // פזמון: המוזיקה המלאה
     v.loopRms = rmsOf(v.loop);
     v.loopV = au.info.kind === "song" && v.sections ? await renderLoopOne({ ...v.cfg, kit: "soft", fill: false, style: "arp" }) : v.loop; // בית: רגוע יותר
+    // כל המוזיקות באותה עוצמה בסיסית (והבית נשאר רגוע יותר מהפזמון), כך שהאיזון מול הקול עובד לכל גרסה
+    const k = 0.12 / v.loopRms;
+    for (const lp of new Set([v.loop, v.loopV])) for (let c = 0; c < lp.numberOfChannels; c++) { const d = lp.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= k; }
+    v.loopRms = 0.12;
   }
   function tileLoop(loop, seconds) {
     const len2 = Math.ceil(seconds * SR), out = new AudioBuffer({ length: len2, numberOfChannels: 2, sampleRate: SR });
@@ -2502,9 +2506,9 @@
   const mkTrack = (buf, f) => ({ name: "", buf, start: 0, vol: 1, pan: 0, mute: false, solo: false, reverb: 0, echo: 0, fadeIn: 0, fadeOut: 0, trimS: 0, trimE: 0,
     eqLow: 0, eqMid: 0, eqHigh: 0, filter: 0, drive: 0, tremolo: 0, comp: 0, chorus: 0, group: "", auto: [], ...f });
   let au = null, auSrc = null, auTimer = null;
-  function auBalance(v) { // המוזיקה בעוצמה נעימה מתחת לקול: שיר 9 דציבל, קריינות 12 דציבל
-    const A = au.info, db = A.kind === "song" ? 9 : 12;
-    v.vol = Math.min(1.5, Math.max(0.15, (A.rmsVoice * Math.pow(10, -db / 20)) / (v.loopRms * Math.max(0.2, v.duck))));
+  function auBalance(v) { // המוזיקה בעוצמה נעימה מתחת לקול: שיר 5 דציבל, קריינות 11 דציבל
+    const A = au.info, db = A.kind === "song" ? 5 : 11, gain = v.polish ? 1.6 : 1; // שיפור הקול מגביר אותו בערך פי 1.6
+    v.vol = Math.min(2, Math.max(0.1, (A.rmsVoice * gain * Math.pow(10, -db / 20)) / (v.loopRms * Math.max(0.2, v.duck))));
     v.vol = Math.round(v.vol * 20) / 20;
   }
   function versionSpec(v, maxSec = Infinity) {
@@ -2541,6 +2545,8 @@
   function auLoadControls(v) {
     $("auImp").hidden = false;
     $("auImpTitle").textContent = `${v.icon} ${v.name} - שיפור הגרסה`;
+    const duckOpts = [...$("auDuck").options].map((o) => +o.value);
+    v.duck = duckOpts.reduce((best, o) => (Math.abs(o - v.duck) < Math.abs(best - v.duck) ? o : best), duckOpts[0]); // הקרוב ביותר ברשימה
     $("auMusicVol").value = v.vol; $("auDuck").value = String(v.duck); $("auBpm").value = v.cfg.bpm;
     $("auInst").value = v.cfg.inst; $("auDrums").value = v.cfg.preset; $("auPolish").checked = v.polish; $("auDenoise").checked = v.denoise;
     $("auSections").checked = !!v.sections; $("auSections").parentElement.hidden = au.info.kind !== "song";
@@ -2556,7 +2562,8 @@
     const bp = Math.min(170, Math.max(50, Math.round(+$("auBpm").value) || v.cfg.bpm));
     const musicChanged = bp !== v.cfg.bpm || $("auInst").value !== v.cfg.inst || $("auDrums").value !== v.cfg.preset;
     v.cfg.bpm = bp; v.cfg.inst = $("auInst").value; v.cfg.preset = $("auDrums").value;
-    v.vol = +$("auMusicVol").value; v.duck = +$("auDuck").value; v.polish = $("auPolish").checked; v.denoise = $("auDenoise").checked;
+    const dk = parseFloat($("auDuck").value); // ערך ריק (אין התאמה ברשימה) לא יאפס את המוזיקה
+    v.vol = +$("auMusicVol").value; v.duck = Number.isFinite(dk) ? dk : v.duck; v.polish = $("auPolish").checked; v.denoise = $("auDenoise").checked;
     const secChanged = au.info.kind === "song" && $("auSections").checked !== !!v.sections;
     v.sections = $("auSections").checked;
     if (musicChanged || secChanged) v.loop = null;
@@ -2676,6 +2683,7 @@
   $("auBalance").addEventListener("click", () => { const v = auCur(); if (v) auImprove(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); });
   $("auReroll").addEventListener("click", () => { const v = auCur(); if (v) auReroll(v).catch((e) => status(`לא הצלחתי: ${e.message || e}`)); });
   window.__mzAu = () => au; // לבדיקות
+  window.__mzMix = async (i, sec, patch) => { const v = au.versions[i]; Object.assign(v, patch || {}); if (!v.loop) await renderLoop(v); const b = await renderMix(v, sec); const d = b.getChannelData(0); return { sr: b.sampleRate, data: Array.from(d.filter((_, k) => k % 50 === 0)), vol: v.vol, duck: v.duck }; };
   window.__mzAnalyze = async (buf) => { const pt = await pitchTrack(buf); window.__pt = pt; return analyzeVoice(pt, buf.duration); }; // לבדיקות
 
   // ---------- הסברים ומדריך ----------
