@@ -79,6 +79,35 @@
   <div class="mz-mbox mz-livebox" id="mzLiveBox" hidden><span class="mz-mlabel">הקלטה חיה <b id="mzLiveT"></b></span><canvas id="mzLive" width="600" height="56"></canvas></div>
 </section>
 
+<details class="card" id="mzAuto">
+  <summary>✨ גרסאות אוטומטיות עם מוזיקה (לשיר או לקריינות)</summary>
+  <p class="help-text">מקליטים שיר או קריינות, והאולפן מזהה מה הוקלט ומציע בעצמו כמה גרסאות מוכנות עם מוזיקה: מנגינה בסולם של השיר, תופים ובס, והמוזיקה מונמכת כשמדברים. לא צריך לחבר כלום ידנית. בוחרים את הגרסה הטובה, ואפשר לשפר אותה.</p>
+  <div class="mz-row">
+    <label class="mz-inline"><input type="checkbox" id="auAutoOffer" checked> להציע גרסאות אוטומטית אחרי כל הקלטה</label>
+    <label>סוג ההקלטה <select id="auKind"><option value="song">שיר</option><option value="speech">קריינות</option></select></label>
+  </div>
+  <p id="auInfo" class="help-text" role="status">אחרי הקלטה (או בלחיצה על "✨ גרסאות אוטומטיות" בערוץ) יופיעו כאן הגרסאות.</p>
+  <div id="auList" class="au-list"></div>
+  <div id="auImp" class="au-imp" hidden>
+    <h3 id="auImpTitle"></h3>
+    <div class="mz-row">
+      <button type="button" id="auPlay" class="btn btn-secondary">▶ שמיעת הגרסה</button>
+      <button type="button" id="auChoose" class="btn">✔ בחירה והוספה לפרויקט</button>
+      <button type="button" id="auBalance" class="btn btn-secondary">🪄 שיפור אוטומטי</button>
+      <button type="button" id="auReroll" class="btn btn-secondary">🎲 מוזיקה אחרת</button>
+    </div>
+    <div class="mz-row">
+      <label>עוצמת המוזיקה <input type="range" id="auMusicVol" min="0.1" max="1.6" step="0.05"></label>
+      <label>הנמכה כשמדברים <select id="auDuck"><option value="1">בלי</option><option value="0.8">קלה</option><option value="0.45">בינונית</option><option value="0.3">חזקה</option><option value="0.15">חזקה מאוד</option></select></label>
+      <label>קצב <input type="number" id="auBpm" min="50" max="170" step="1"></label>
+      <label>כלי <select id="auInst"><option value="piano">פסנתר</option><option value="guitar">גיטרה</option><option value="synth">סינתי</option><option value="pad">משטח רך</option><option value="organ">אורגן</option><option value="none">בלי אקורדים</option></select></label>
+      <label>תופים <select id="auDrums"><option value="none">בלי</option><option value="ballad">בלדה</option><option value="pop">פופ</option><option value="rock">רוק</option><option value="hasidic">חסידי</option><option value="mizrahi">מזרחי</option><option value="disco">דיסקו</option><option value="hiphop">היפ הופ</option><option value="reggae">רגאיי</option></select></label>
+      <label class="mz-inline"><input type="checkbox" id="auPolish"> שיפור הקול</label>
+      <label class="mz-inline"><input type="checkbox" id="auDenoise"> ניקוי רעשים</label>
+    </div>
+  </div>
+</details>
+
 <details class="card" id="mzLyrCard">
   <summary>📝 מילות השיר (מוצגות למעלה בזמן ההקלטה)</summary>
   <textarea id="mzLyrics" rows="6" placeholder="כותבים או מדביקים את מילות השיר, שורה בכל שורה" aria-label="מילות השיר"></textarea>

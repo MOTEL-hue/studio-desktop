@@ -111,3 +111,11 @@ html[data-theme=light] .mz-standalone .mz-guide .mz-g-tip{color:#8a5a00}
 html[data-theme=light] .mz-standalone .mz-guide .mz-g-warn{color:#b42318}
 .mz-standalone textarea{background:#0b0f15;color:#e6e8eb;border:1px solid var(--border);border-radius:6px}
 @media (max-width:700px){.mz-mbox{flex-basis:100%}}
+
+/* גרסאות אוטומטיות */
+.au-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.6rem;margin:.6rem 0}
+.au-card{border:1px solid var(--border,#ccc);border-radius:10px;padding:.6rem}
+.au-card.on{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.35)}
+.au-t{font-weight:800;margin-bottom:.2rem}.au-d{margin:0 0 .4rem}
+.au-imp{border-top:1px solid var(--border,#ccc);margin-top:.6rem;padding-top:.4rem}.au-imp[hidden]{display:none!important}
+.au-imp h3{margin:.2rem 0}
